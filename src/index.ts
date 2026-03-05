@@ -7,6 +7,7 @@ import { listCommand } from './commands/list';
 import { exportCommand } from './commands/export';
 import { diffCommand } from './commands/diff';
 import { applyCommand } from './commands/apply';
+import { runWizard } from './commands/wizard';
 
 const program = new Command();
 
@@ -98,6 +99,13 @@ program
       process.exit(1);
     }
     await applyCommand({ token: tokenOverride, marketplaceId: opts.marketplace, file, filter: cmd.filter, force: cmd.force, dryRun: cmd.dryRun });
+  });
+
+program
+  .command('wizard')
+  .description('Interactive wizard mode (対話式ウィザード)')
+  .action(async () => {
+    await runWizard();
   });
 
 program.parseAsync().catch((e) => {
