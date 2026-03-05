@@ -1,0 +1,154 @@
+ebay-exclude CLIツールのHTMLドキュメント（使い方ガイド）を作成してください。
+
+出力ファイル: ~/Desktop/ebay-exclude/docs/index.html
+
+## 要件
+- シングルページHTML（外部CSSフレームワーク使用可、tailwindcss CDN推奨）
+- 日本語メインで、コマンド例は英語
+- モバイル対応（レスポンシブ）
+- ダークモード対応
+- シンタックスハイライト（highlight.js CDN使用）
+- セクション内ナビゲーション（サイドバーまたはトップナビ）
+- プリントフレンドリー
+
+## セクション構成
+
+### 1. ヘッダー
+- ツール名: ebay-exclude
+- サブタイトル: eBay発送除外国を一括管理するCLIツール
+- バージョン: 1.0.0
+
+### 2. 概要
+- このツールでできること
+- 主な特徴（CSV管理、一括適用、差分更新、レート制限対応）
+
+### 3. セットアップ手順
+#### 3.1 前提条件
+- Node.js 18以上
+- npm
+
+#### 3.2 インストール
+```bash
+cd ~/Desktop/ebay-exclude
+npm install
+npm run build
+```
+
+#### 3.3 eBay Developer Account
+- eBay Developer Program (https://developer.ebay.com) にアクセス
+- Application作成
+- OAuth Token取得方法の説明
+- Production Tokenの取得手順
+
+#### 3.4 認証設定
+```bash
+# 方法1: 環境変数
+export EBAY_TOKEN="your-oauth-token"
+
+# 方法2: コマンドラインフラグ
+ebay-exclude --token "your-oauth-token" list
+```
+
+### 4. コマンド一覧
+各コマンドの詳細な使用例を含める:
+
+#### 4.1 init — テンプレートCSV生成
+```bash
+ebay-exclude init
+ebay-exclude init -o my-exclusions.csv
+```
+
+#### 4.2 list — ポリシー一覧表示
+```bash
+ebay-exclude list
+ebay-exclude list --filter "eco_new"
+```
+
+#### 4.3 export — 現在の設定をエクスポート
+```bash
+ebay-exclude export -o current.csv
+ebay-exclude export --policy "POLICY_ID" -o current.csv
+```
+
+#### 4.4 diff — 差分表示
+```bash
+ebay-exclude diff exclusions.csv
+ebay-exclude diff exclusions.csv --filter "eco_new"
+```
+セマンティック・ディフの出力例を含める
+
+#### 4.5 apply — 一括適用
+```bash
+# ドライラン（確認のみ）
+ebay-exclude apply exclusions.csv --dry-run
+
+# 実際に適用
+ebay-exclude apply exclusions.csv
+
+# フィルタ付き
+ebay-exclude apply exclusions.csv --filter "eco_new"
+
+# 強制更新（ステートファイル無視）
+ebay-exclude apply exclusions.csv --force
+```
+
+### 5. CSVの編集方法
+#### 5.1 CSVフォーマット
+| 列名 | 説明 | 値 |
+|------|------|-----|
+| type | ルール種別 | region / country / domestic / other |
+| value | 対象の値 | 地域名 / ISOコード / domestic名 / other名 |
+| action | アクション | exclude / include |
+| note | メモ | 自由記述（任意） |
+
+#### 5.2 基本的な使い方
+```csv
+type,value,action,note
+region,Africa,exclude,アフリカ全域除外
+region,Asia,exclude,アジア全域除外
+country,AU,include,オーストラリアは発送可
+country,JP,include,日本は発送可
+domestic,Alaska/Hawaii,exclude,アラスカ・ハワイ除外
+```
+
+#### 5.3 よくあるパターン
+- パターン1: 全地域除外→特定国のみ発送可
+- パターン2: 特定地域のみ除外
+- パターン3: 既存設定の微調整
+
+#### 5.4 利用可能な地域名
+Africa, Asia, Central America and Caribbean, Europe, Middle East, North America, Oceania, Southeast Asia, South America
+
+#### 5.5 利用可能なISOコード一覧
+主要な国のISOコード一覧テーブル
+
+### 6. ショートカット
+- ebx エイリアス（~/.zshrcに追加済み）
+- scripts/apply-all.sh
+- scripts/dry-run.sh
+- scripts/export-current.sh
+
+### 7. FAQ
+- Q: トークンはどうやって取得する？
+- Q: 300件以上のポリシーがある場合は？
+- Q: レート制限に引っかかった場合は？
+- Q: CSVに記載していない国はどうなる？
+- Q: 既にincludeされている国を再度excludeするには？
+
+### 8. トラブルシューティング
+- エラー: "Missing token"
+- エラー: "Unknown region/country"
+- エラー: "429 Too Many Requests"
+- エラー: "API 401 Unauthorized"
+
+### 9. フッター
+- GitHub: naokijodan/ebay-exclude
+- バージョン: 1.0.0
+- ライセンス: MIT
+
+## デザインのポイント
+- 背景: ダークグレー（#1a1a2e）とライト（#f8f9fa）の切り替え
+- アクセントカラー: eBayカラー（#e53238赤、#0064d2青、#f5af02黄、#86b817緑）
+- フォント: Inter（Google Fonts）+ JetBrains Mono（コード）
+- コードブロック: シンタックスハイライト付き、コピーボタン付き
+- セクション間の区切り: グラデーションライン

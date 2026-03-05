@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ja" class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="ebay-exclude 使い方ガイド。eBay発送除外国を一括管理するCLIツールのドキュメント。インストール、コマンド、CSV仕様、FAQ、トラブルシューティング。" />
+    <title>ebay-exclude 使い方ガイド | v1.0.0</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: 'class', theme: { extend: { colors: { 'ebay-red': '#e53238', 'ebay-blue': '#0064d2', 'ebay-yellow': '#f5af02', 'ebay-green': '#86b817' }, fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','sans-serif'], mono: ['JetBrains Mono','ui-monospace','SFMono-Regular','monospace'] } } } };
+    </script>
+    <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" />
+    <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" disabled />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/diff.min.js"></script>
+    <style>
+      :root { --ebay-red:#e53238; --ebay-blue:#0064d2; --ebay-yellow:#f5af02; --ebay-green:#86b817; }
+      .hr-gradient { height:1px; background:linear-gradient(90deg,var(--ebay-red),var(--ebay-blue),var(--ebay-yellow),var(--ebay-green)); opacity:.7 }
+      pre { position:relative }
+      .copy-btn { position:absolute; top:.5rem; right:.5rem }
+      @media print { html{ -webkit-print-color-adjust:exact; print-color-adjust:exact } body{ background:#fff !important; color:#000 !important } nav,.print\:hidden{ display:none !important } .card{ box-shadow:none !important; border:1px solid #e5e7eb !important; background:#fff !important } a{ color:#000 !important; text-decoration:underline } }
+    </style>
+    <script>
+      (function(){ try{ const ls=localStorage.getItem('theme'); const prefers=window.matchMedia('(prefers-color-scheme: dark)').matches; const dark = ls ? ls==='dark' : prefers; document.documentElement.classList.toggle('dark', dark); const d=document.getElementById('hljs-dark'); const l=document.getElementById('hljs-light'); if(d&&l){ d.disabled=!dark; l.disabled=dark; } }catch(e){} })();
+      function toggleTheme(){ const dark=document.documentElement.classList.toggle('dark'); try{ localStorage.setItem('theme', dark?'dark':'light'); }catch(e){} const d=document.getElementById('hljs-dark'); const l=document.getElementById('hljs-light'); if(d&&l){ d.disabled=!dark; l.disabled=dark; } }
+      document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('pre code').forEach(el=>hljs.highlightElement(el)); document.querySelectorAll('pre').forEach(pre=>{ const b=document.createElement('button'); b.className='copy-btn rounded border text-xs px-2 py-1 bg-white/80 hover:bg-white dark:bg-gray-800/70 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600'; b.textContent='Copy'; b.addEventListener('click',async()=>{ const t=pre.querySelector('code')?.innerText||''; try{ await navigator.clipboard.writeText(t); b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy',1200); }catch(e){ b.textContent='Failed'; setTimeout(()=>b.textContent='Copy',1200); } }); pre.appendChild(b); }); });
+    </script>
+  </head>
+  <body class="bg-[#f8f9fa] text-gray-800 dark:bg-[#1a1a2e] dark:text-gray-100 font-sans leading-relaxed">
+    <nav class="sticky top-0 z-50 backdrop-blur bg-white/85 dark:bg-[#1a1a2e]/80 border-b border-gray-200 dark:border-gray-700 print:hidden">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
+        <div class="flex items-center gap-2 whitespace-nowrap">
+          <span class="font-bold text-lg tracking-tight">ebay-exclude</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">v1.0.0</span>
+        </div>
+        <div class="flex gap-3 ml-4 text-sm overflow-x-auto text-gray-700 dark:text-gray-200">
+          <a href="#overview" class="hover:text-ebay-blue">概要</a>
+          <a href="#setup" class="hover:text-ebay-blue">セットアップ</a>
+          <a href="#commands" class="hover:text-ebay-blue">コマンド</a>
+          <a href="#csv" class="hover:text-ebay-blue">CSV編集</a>
+          <a href="#shortcuts" class="hover:text-ebay-blue">ショートカット</a>
+          <a href="#faq" class="hover:text-ebay-blue">FAQ</a>
+          <a href="#troubleshooting" class="hover:text-ebay-blue">トラブルシューティング</a>
+        </div>
+        <div class="ml-auto flex items-center gap-2">
+          <button type="button" onclick="toggleTheme()" class="text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800">Dark/Light</button>
+          <a href="#top" class="text-sm px-3 py-1.5 rounded border border-transparent hover:border-gray-300 dark:hover:border-gray-600">Top</a>
+        </div>
+      </div>
+    </nav>
+    <header id="top" class="bg-white dark:bg-[#121225] border-b border-gray-200/70 dark:border-gray-700/50">
+      <div class="max-w-6xl mx-auto px-4 py-12">
+        <h1 class="text-3xl md:text-5xl font-extrabold tracking-tight">ebay-exclude</h1>
+        <p class="mt-3 text-lg md:text-xl text-gray-700 dark:text-gray-300">eBay発送除外国を一括管理するCLIツール</p>
+        <div class="mt-6 flex flex-wrap gap-2 text-sm">
+          <span class="px-2 py-1 rounded bg-ebay-red/10 text-ebay-red">CSV管理</span>
+          <span class="px-2 py-1 rounded bg-ebay-blue/10 text-ebay-blue">一括適用</span>
+          <span class="px-2 py-1 rounded bg-ebay-yellow/20 text-ebay-yellow">差分更新</span>
+          <span class="px-2 py-1 rounded bg-ebay-green/20 text-ebay-green">レート制限対応</span>
+        </div>
+      </div>
+    </header>
+    <div class="hr-gradient"></div>
+    <section id="overview" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">概要</h2>
+        <p class="mb-4">ebay-exclude は、eBay の発送除外国・地域ポリシーを CSV で集中管理し、その内容をアカウントへ一括適用できる CLI ツールです。複数ポリシーの同期や差分の可視化、レート制限を考慮した安全な適用をサポートします。</p>
+        <ul class="list-disc pl-6 space-y-1">
+          <li>CSV からの宣言的管理（Git で履歴管理が容易）</li>
+          <li>既存設定のエクスポートと差分確認（セマンティック・ディフ）</li>
+          <li>ドライラン対応で安全に検証</li>
+          <li>レート制限・再試行・部分適用の考慮</li>
+        </ul>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <section id="setup" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-6">セットアップ手順</h2>
+        <h3 class="text-xl font-semibold mt-6 mb-2">3.1 前提条件</h3>
+        <ul class="list-disc pl-6 space-y-1"><li>Node.js 18 以上</li><li>npm</li></ul>
+        <h3 class="text-xl font-semibold mt-6 mb-2">3.2 インストール</h3>
+        <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+          <pre class="p-3 overflow-x-auto"><code class="language-bash">cd ~/Desktop/ebay-exclude</code></pre>
+          <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">npm install</code></pre>
+          <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">npm run build</code></pre>
+        </div>
+        <h3 class="text-xl font-semibold mt-6 mb-2">3.3 eBay Developer Account</h3>
+        <ol class="list-decimal pl-6 space-y-2">
+          <li><a class="text-ebay-blue hover:underline" href="https://developer.ebay.com" target="_blank" rel="noreferrer">eBay Developer Program</a> にアクセスし、アカウントを作成/ログイン</li>
+          <li>Application を作成し、必要な API 権限を有効化</li>
+          <li>OAuth Token の取得方法を確認（Authorization Code Flow を推奨）</li>
+          <li>本番利用の場合は Production 環境のクレデンシャルでトークンを取得</li>
+        </ol>
+        <h3 class="text-xl font-semibold mt-6 mb-2">3.4 認証設定</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-300 mb-2">トークンのスコープは発送ポリシーの読み書きに必要な範囲を付与してください。</p>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <div class="px-3 pt-3 text-xs text-gray-500">方法1: 環境変数</div>
+            <pre class="p-3 overflow-x-auto"><code class="language-bash">export EBAY_TOKEN="your-oauth-token"</code></pre>
+          </div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <div class="px-3 pt-3 text-xs text-gray-500">方法2: コマンドラインフラグ</div>
+            <pre class="p-3 overflow-x-auto"><code class="language-bash">ebay-exclude --token "your-oauth-token" list</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <section id="commands" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">コマンド一覧</h2>
+        <div class="mb-4 text-sm flex flex-wrap gap-2">
+          <a href="#cmd-init" class="px-2 py-1 rounded border hover:border-ebay-blue">4.1 init</a>
+          <a href="#cmd-list" class="px-2 py-1 rounded border hover:border-ebay-blue">4.2 list</a>
+          <a href="#cmd-export" class="px-2 py-1 rounded border hover:border-ebay-blue">4.3 export</a>
+          <a href="#cmd-diff" class="px-2 py-1 rounded border hover:border-ebay-blue">4.4 diff</a>
+          <a href="#cmd-apply" class="px-2 py-1 rounded border hover:border-ebay-blue">4.5 apply</a>
+        </div>
+        <article id="cmd-init" class="mb-10">
+          <h3 class="text-xl font-semibold mb-2">4.1 init — テンプレートCSV生成</h3>
+          <p class="mb-2">テンプレートとなる CSV をカレントディレクトリに作成します。</p>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <pre class="p-3 overflow-x-auto"><code class="language-bash">ebay-exclude init</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude init -o my-exclusions.csv</code></pre>
+          </div>
+        </article>
+        <article id="cmd-list" class="mb-10">
+          <h3 class="text-xl font-semibold mb-2">4.2 list — ポリシー一覧表示</h3>
+          <p class="mb-2">現在の発送ポリシーを一覧表示します。フィルタで特定のポリシーに絞り込み可能です。</p>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <pre class="p-3 overflow-x-auto"><code class="language-bash">ebay-exclude list</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude list --filter "eco_new"</code></pre>
+          </div>
+        </article>
+        <article id="cmd-export" class="mb-10">
+          <h3 class="text-xl font-semibold mb-2">4.3 export — 現在の設定をエクスポート</h3>
+          <p class="mb-2">既存の除外国設定を CSV に保存します。ポリシーIDを指定してエクスポートすることも可能です。</p>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <pre class="p-3 overflow-x-auto"><code class="language-bash">ebay-exclude export -o current.csv</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude export --policy "POLICY_ID" -o current.csv</code></pre>
+          </div>
+        </article>
+        <article id="cmd-diff" class="mb-10">
+          <h3 class="text-xl font-semibold mb-2">4.4 diff — 差分表示</h3>
+          <p class="mb-2">CSV と現在の設定の差分を、セマンティックに表示します（追加/削除/更新の分類）。</p>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <pre class="p-3 overflow-x-auto"><code class="language-bash">ebay-exclude diff exclusions.csv</code></pre>
+              <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude diff exclusions.csv --filter "eco_new"</code></pre>
+            </div>
+            <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <div class="px-3 pt-3 text-xs text-gray-500">セマンティック・ディフ（例）</div>
+              <pre class="p-3 overflow-x-auto"><code class="language-diff">policy: eco_new
+  include country JP  # unchanged
+  - include country AU  # removed
+  + include country NZ  # added
+  ~ region Asia: exclude -&gt; include  # updated
+
+summary:
+  added:    1
+  removed:  1
+  updated:  1
+  unchanged: 1</code></pre>
+            </div>
+          </div>
+        </article>
+        <article id="cmd-apply" class="mb-10">
+          <h3 class="text-xl font-semibold mb-2">4.5 apply — 一括適用</h3>
+          <p class="mb-2">CSV の内容をアカウントへ適用します。ドライランで内容を確認してから本番適用するのが安全です。</p>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <pre class="p-3 overflow-x-auto"><code class="language-bash"># ドライラン（確認のみ）</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude apply exclusions.csv --dry-run</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash"># 実際に適用</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude apply exclusions.csv</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash"># フィルタ付き</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude apply exclusions.csv --filter "eco_new"</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash"># 強制更新（ステートファイル無視）</code></pre>
+            <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebay-exclude apply exclusions.csv --force</code></pre>
+          </div>
+        </article>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <section id="csv" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">CSV の編集方法</h2>
+        <h3 class="text-xl font-semibold mt-4 mb-2">5.1 CSVフォーマット</h3>
+        <div class="overflow-x-auto">
+          <table class="table-auto min-w-full border border-gray-200 dark:border-gray-700">
+            <thead class="bg-gray-50 dark:bg-gray-800"><tr><th class="px-3 py-2 text-left">列名</th><th class="px-3 py-2 text-left">説明</th><th class="px-3 py-2 text-left">値</th></tr></thead>
+            <tbody>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">type</td><td class="px-3 py-2">ルール種別</td><td class="px-3 py-2">region / country / domestic / other</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">value</td><td class="px-3 py-2">対象の値</td><td class="px-3 py-2">地域名 / ISOコード / domestic名 / other名</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">action</td><td class="px-3 py-2">アクション</td><td class="px-3 py-2">exclude / include</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">note</td><td class="px-3 py-2">メモ</td><td class="px-3 py-2">自由記述（任意）</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 class="text-xl font-semibold mt-6 mb-2">5.2 基本的な使い方</h3>
+        <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+          <pre class="p-3 overflow-x-auto"><code class="language-plaintext">type,value,action,note
+region,Africa,exclude,アフリカ全域除外
+region,Asia,exclude,アジア全域除外
+country,AU,include,オーストラリアは発送可
+country,JP,include,日本は発送可
+domestic,Alaska/Hawaii,exclude,アラスカ・ハワイ除外</code></pre>
+        </div>
+        <h3 class="text-xl font-semibold mt-6 mb-2">5.3 よくあるパターン</h3>
+        <ul class="list-disc pl-6 space-y-1"><li>パターン1: 全地域除外 → 特定国のみ発送可</li><li>パターン2: 特定地域のみ除外（例: Middle East のみ exclude）</li><li>パターン3: 既存設定の微調整（差分のみ更新）</li></ul>
+        <h3 class="text-xl font-semibold mt-6 mb-2">5.4 利用可能な地域名</h3>
+        <p class="mb-2">Africa, Asia, Central America and Caribbean, Europe, Middle East, North America, Oceania, Southeast Asia, South America</p>
+        <h3 class="text-xl font-semibold mt-6 mb-2">5.5 主要な国の ISO コード</h3>
+        <div class="overflow-x-auto">
+          <table class="table-auto min-w-full border border-gray-200 dark:border-gray-700">
+            <thead class="bg-gray-50 dark:bg-gray-800"><tr><th class="px-3 py-2 text-left">国名</th><th class="px-3 py-2 text-left">ISO</th><th class="px-3 py-2 text-left">備考</th></tr></thead>
+            <tbody>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">日本</td><td class="px-3 py-2">JP</td><td class="px-3 py-2">Japan</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">アメリカ合衆国</td><td class="px-3 py-2">US</td><td class="px-3 py-2">United States</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">カナダ</td><td class="px-3 py-2">CA</td><td class="px-3 py-2">Canada</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">イギリス</td><td class="px-3 py-2">GB</td><td class="px-3 py-2">United Kingdom</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">ドイツ</td><td class="px-3 py-2">DE</td><td class="px-3 py-2">Germany</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">フランス</td><td class="px-3 py-2">FR</td><td class="px-3 py-2">France</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">イタリア</td><td class="px-3 py-2">IT</td><td class="px-3 py-2">Italy</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">スペイン</td><td class="px-3 py-2">ES</td><td class="px-3 py-2">Spain</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">オーストラリア</td><td class="px-3 py-2">AU</td><td class="px-3 py-2">Australia</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">ニュージーランド</td><td class="px-3 py-2">NZ</td><td class="px-3 py-2">New Zealand</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">中国</td><td class="px-3 py-2">CN</td><td class="px-3 py-2">China</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">韓国</td><td class="px-3 py-2">KR</td><td class="px-3 py-2">South Korea</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">シンガポール</td><td class="px-3 py-2">SG</td><td class="px-3 py-2">Singapore</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">インド</td><td class="px-3 py-2">IN</td><td class="px-3 py-2">India</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">ブラジル</td><td class="px-3 py-2">BR</td><td class="px-3 py-2">Brazil</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">メキシコ</td><td class="px-3 py-2">MX</td><td class="px-3 py-2">Mexico</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">南アフリカ</td><td class="px-3 py-2">ZA</td><td class="px-3 py-2">South Africa</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">ロシア</td><td class="px-3 py-2">RU</td><td class="px-3 py-2">Russia</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">アラブ首長国連邦</td><td class="px-3 py-2">AE</td><td class="px-3 py-2">U.A.E.</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">トルコ</td><td class="px-3 py-2">TR</td><td class="px-3 py-2">Turkey</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">スウェーデン</td><td class="px-3 py-2">SE</td><td class="px-3 py-2">Sweden</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">ノルウェー</td><td class="px-3 py-2">NO</td><td class="px-3 py-2">Norway</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">スイス</td><td class="px-3 py-2">CH</td><td class="px-3 py-2">Switzerland</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">オーストリア</td><td class="px-3 py-2">AT</td><td class="px-3 py-2">Austria</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">アイルランド</td><td class="px-3 py-2">IE</td><td class="px-3 py-2">Ireland</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">ポーランド</td><td class="px-3 py-2">PL</td><td class="px-3 py-2">Poland</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2">チェコ</td><td class="px-3 py-2">CZ</td><td class="px-3 py-2">Czechia</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <section id="shortcuts" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">ショートカット</h2>
+        <ul class="list-disc pl-6 space-y-2">
+          <li>ebx エイリアス（例: <code class="font-mono">~/.zshrc</code>）
+            <div class="card mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <pre class="p-3 overflow-x-auto"><code class="language-bash"># ~/.zshrc</code></pre>
+              <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">alias ebx="ebay-exclude"</code></pre>
+              <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">source ~/.zshrc</code></pre>
+              <pre class="p-3 overflow-x-auto border-t border-gray-100 dark:border-gray-800"><code class="language-bash">ebx list</code></pre>
+            </div>
+          </li>
+          <li>scripts/apply-all.sh
+            <div class="card mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <pre class="p-3 overflow-x-auto"><code class="language-bash">bash scripts/apply-all.sh</code></pre>
+            </div>
+          </li>
+          <li>scripts/dry-run.sh
+            <div class="card mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <pre class="p-3 overflow-x-auto"><code class="language-bash">bash scripts/dry-run.sh</code></pre>
+            </div>
+          </li>
+          <li>scripts/export-current.sh
+            <div class="card mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <pre class="p-3 overflow-x-auto"><code class="language-bash">bash scripts/export-current.sh</code></pre>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <section id="faq" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">FAQ</h2>
+        <div class="space-y-4">
+          <div><div class="font-semibold">Q: トークンはどうやって取得する？</div><div class="text-gray-700 dark:text-gray-300">A: eBay Developer Program のアプリで OAuth の Authorization Code Flow を設定し、Production クレデンシャルでトークンを発行してください。取得後は環境変数または <code class="font-mono">--token</code> で指定します。</div></div>
+          <div><div class="font-semibold">Q: 300件以上のポリシーがある場合は？</div><div class="text-gray-700 dark:text-gray-300">A: ページングに対応しています。<code class="font-mono">list</code> と <code class="font-mono">export</code> は自動で複数ページを取得します。パフォーマンスのため、<code class="font-mono">--filter</code> の併用を推奨します。</div></div>
+          <div><div class="font-semibold">Q: レート制限に引っかかった場合は？</div><div class="text-gray-700 dark:text-gray-300">A: 自動リトライとバックオフを実装しています。<code class="font-mono">apply</code> 中に 429 が返った場合は一定時間待機し、未適用分から再開します。</div></div>
+          <div><div class="font-semibold">Q: CSVに記載していない国はどうなる？</div><div class="text-gray-700 dark:text-gray-300">A: デフォルトでは非指定の項目は変更しません。完全同期したい場合は、<code class="font-mono">diff</code> の結果を確認し、必要に応じて除外や包含を CSV に明記してください。</div></div>
+          <div><div class="font-semibold">Q: 既に include されている国を再度 exclude するには？</div><div class="text-gray-700 dark:text-gray-300">A: 同一対象に対して <code class="font-mono">action</code> を <code class="font-mono">exclude</code> に変更して CSV を用意し、<code class="font-mono">apply</code> を実行します。<code class="font-mono">diff</code> で更新として表示されます。</div></div>
+        </div>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <section id="troubleshooting" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">トラブルシューティング</h2>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"><div class="font-semibold mb-1">エラー: "Missing token"</div><div class="text-sm text-gray-700 dark:text-gray-300">環境変数 <code class="font-mono">EBAY_TOKEN</code> を設定するか、コマンドの <code class="font-mono">--token</code> フラグで指定してください。</div></div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"><div class="font-semibold mb-1">エラー: "Unknown region/country"</div><div class="text-sm text-gray-700 dark:text-gray-300">地域名/ISOコードを確認してください。地域は定義済み名、国は ISO 3166-1 alpha-2 を使用します。</div></div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"><div class="font-semibold mb-1">エラー: "429 Too Many Requests"</div><div class="text-sm text-gray-700 dark:text-gray-300">一定時間待って再実行。ツールは自動バックオフしますが、<code class="font-mono">--filter</code> で対象を絞ると改善します。</div></div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"><div class="font-semibold mb-1">エラー: "API 401 Unauthorized"</div><div class="text-sm text-gray-700 dark:text-gray-300">トークンの有効期限・スコープ・環境（Sandbox/Production）を確認し、必要に応じて再取得してください。</div></div>
+        </div>
+      </div>
+    </section>
+    <div class="hr-gradient"></div>
+    <footer id="footer" class="py-10">
+      <div class="max-w-6xl mx-auto px-4 flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
+        <div class="text-sm text-gray-600 dark:text-gray-300">
+          <div><span class="font-semibold">GitHub:</span> <a class="text-ebay-blue hover:underline" href="https://github.com/naokijodan/ebay-exclude" target="_blank" rel="noreferrer">naokijodan/ebay-exclude</a></div>
+          <div><span class="font-semibold">バージョン:</span> 1.0.0</div>
+          <div><span class="font-semibold">ライセンス:</span> MIT</div>
+        </div>
+        <div class="md:ml-auto text-xs text-gray-500">&copy; <span id="y"></span> ebay-exclude Docs</div>
+      </div>
+    </footer>
+    <script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+  </body>
+</html>

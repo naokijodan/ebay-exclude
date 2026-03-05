@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+import { Command } from 'commander';
+import chalk from 'chalk';
+import { initCommand } from './commands/init';
+import { listCommand } from './commands/list';
+import { exportCommand } from './commands/export';
+import { diffCommand } from './commands/diff';
+import { applyCommand } from './commands/apply';
+
+const program = new Command();
+
+program
+  .name('ebay-exclude')
+  .description('Manage eBay fulfillment policy ship-to exclusions via CSV')
+  .option('--token <token>', 'eBay OAuth token (overrides EBAY_TOKEN env)')
+  .option('--marketplace <id>', 'eBay marketplace id (default EBAY_US)');
+
+program
+  .command('init')
+  .description('Generate template exclusions CSV (exclusions.csv)')
+  .option('-o, --output <path>', 'Output CSV path (default: exclusions.csv)')
+  .action(async (cmd) => {
+    await initCommand(cmd.output);
+  });
+
+program
+  .command('list')
+  .description('List fulfillment policies with exclusion counts')
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const token = opts.token || process.env.EBAY_TOKEN;
+    if (!token) {
+      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+      process.exit(1);
+    }
+    await listCommand({ token, marketplaceId: opts.marketplace, filter: cmd.filter });
+  });
+
+program
+  .command('export')
+  .description('Export exclusions of a policy to CSV (stdout by default)')
+  .option('--policy <id>', 'Fulfillment policy ID (default: first policy)')
+  .option('-o, --output <path>', 'Output CSV file (default: stdout)')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const token = opts.token || process.env.EBAY_TOKEN;
+    if (!token) {
+      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+      process.exit(1);
+    }
+    await exportCommand({ token, marketplaceId: opts.marketplace, policy: cmd.policy, output: cmd.output });
+  });
+
+program
+  .command('diff <file>')
+  .description('Show semantic diff between CSV and current eBay settings')
+  .option('--policy <id>', 'Fulfillment policy ID')
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .action(async (file, cmd) => {
+    const opts = program.opts();
+    const token = opts.token || process.env.EBAY_TOKEN;
+    if (!token) {
+      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+      process.exit(1);
+    }
+    await diffCommand({ token, marketplaceId: opts.marketplace, file, policy: cmd.policy, filter: cmd.filter });
+  });
+
+program
+  .command('apply <file>')
+  .description('Apply CSV exclusions to matching fulfillment policies')
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .option('--force', 'Ignore state file and force update', false)
+  .option('--dry-run', 'Show planned changes without updating', false)
+  .action(async (file, cmd) => {
+    const opts = program.opts();
+    const token = opts.token || process.env.EBAY_TOKEN;
+    if (!token) {
+      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+      process.exit(1);
+    }
+    await applyCommand({ token, marketplaceId: opts.marketplace, file, filter: cmd.filter, force: cmd.force, dryRun: cmd.dryRun });
+  });
+
+program.parseAsync().catch((e) => {
+  console.error(chalk.red(e?.message || e));
+  process.exit(1);
+});
+

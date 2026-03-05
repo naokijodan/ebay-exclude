@@ -1,0 +1,31 @@
+{
+  "name": "ebay-exclude",
+  "version": "1.0.0",
+  "description": "CLI tool to manage eBay shipping exclusion policies via CSV",
+  "main": "dist/index.js",
+  "bin": {
+    "ebay-exclude": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["ebay", "shipping", "exclusion", "cli"],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.0",
+    "commander": "^12.1.0",
+    "csv-parse": "^5.5.0",
+    "csv-stringify": "^6.5.0",
+    "chalk": "^4.1.2",
+    "ora": "^5.4.1",
+    "p-limit": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "ts-node": "^10.9.0"
+  }
+}

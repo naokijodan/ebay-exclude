@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.ebay-exclude-state.json
+*.log
+.env
+.DS_Store
