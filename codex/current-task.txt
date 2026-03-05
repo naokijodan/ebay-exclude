@@ -1,38 +1,277 @@
-~/Desktop/ebay-exclude/src/commands/export-all.ts を最適化してください。
+~/Desktop/ebay-exclude/src/commands/export-all.ts と import-all.ts をピボット形式に書き換えてください。
 
-## 問題
-現在の実装は312ポリシーに対して個別にgetFulfillmentPolicy()を呼んでいるため非常に遅い。
-しかし、getFulfillmentPolicies()の一覧APIレスポンスに既にshipToLocations.regionExcludedが含まれている。
+## 概要
+現在は「1ポリシー×除外国数」の行形式だが、
+「行=ポリシー、列=国/地域」のマトリクス形式に変更する。
 
-## 修正内容
-getFulfillmentPolicy()の個別呼び出しループを削除し、
-getFulfillmentPolicies()の結果だけで全データを取得する。
+## Excelの構成
 
-修正前（遅い）:
+### ヘッダー行（1行目）
+| policy_name | policy_id | Africa | Asia | Central America and Caribbean | Europe | Middle East | North America | Oceania | Southeast Asia | South America | Alaska/Hawaii | APO/FPO | PO Box | Afghanistan | Albania | Algeria | ... |
+
+- 最初の2列: policy_name, policy_id（固定）
+- 次にリージョン（地域）: Africa, Asia, Central America and Caribbean, Europe, Middle East, North America, Oceania, Southeast Asia, South America
+- 次に特殊地域: Alaska/Hawaii, APO/FPO, US Protectorates, PO Box
+- 最後に国名: アルファベット順
+
+### データ行（2行目以降）
+各ポリシーが1行。セルの値:
+- `x` = 除外する
+- 空白 = 除外しない
+
+例:
+| Egl_2511-0058-0065_xp_new_0010 | 302646213011 | x | | x | x | | | | | | x | x | | x | | | x |
+
+## export-all.ts の実装
+
 ```typescript
-for (let i = 0; i < policies.length; i++) {
-  const p = policies[i];
-  const detail = await getFulfillmentPolicy(opts.token, p.fulfillmentPolicyId);
-  const excluded = detail.shipToLocations?.regionExcluded || [];
-  // ...
+import ExcelJS from 'exceljs';
+import chalk from 'chalk';
+import path from 'path';
+import { getFulfillmentPolicies } from '../lib/ebay-api';
+import { classifyRegionName } from '../lib/classify-region';
+import { regionMapping, countryToIso } from '../data/definitions';
+
+// ISOコード→表示名の逆引き
+const isoToCountry: Record<string, string> = {};
+for (const [name, iso] of Object.entries(countryToIso)) {
+  isoToCountry[iso] = name;
+}
+const reverseRegionMapping: Record<string, string> = Object.fromEntries(
+  Object.entries(regionMapping).map(([k, v]) => [v, k])
+);
+
+export async function exportAllCommand(opts: { token?: string; marketplaceId?: string; output?: string }) {
+  const marketplaceId = opts.marketplaceId || process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
+  const outputFile = opts.output || 'ebay-policies.xlsx';
+  const abs = path.resolve(outputFile);
+
+  console.log(chalk.cyan('全ポリシーを取得中...'));
+  const policies = await getFulfillmentPolicies(opts.token, marketplaceId);
+  console.log(chalk.gray(`${policies.length}件のポリシーを取得しました`));
+
+  // Step 1: 全ポリシーの除外項目を収集し、ユニークな列名を決定
+  const allPolicyData: Array<{ name: string; id: string; excludedNames: Set<string> }> = [];
+  const allExcludedDisplayNames = new Set<string>();
+
+  for (const p of policies) {
+    const excluded = p.shipToLocations?.regionExcluded || [];
+    const excludedNames = new Set<string>();
+
+    for (const r of excluded) {
+      const rType = classifyRegionName(r.regionName);
+      let displayName = r.regionName;
+
+      if (rType === 'COUNTRY_REGION') {
+        displayName = reverseRegionMapping[r.regionName] || r.regionName;
+      } else if (rType === 'COUNTRY') {
+        displayName = isoToCountry[r.regionName] || r.regionName;
+      }
+      // domestic, PO_BOX はそのまま
+
+      excludedNames.add(displayName);
+      allExcludedDisplayNames.add(displayName);
+    }
+
+    allPolicyData.push({ name: p.name, id: p.fulfillmentPolicyId, excludedNames });
+  }
+
+  // Step 2: 列の順序を決定
+  // リージョン → 特殊地域 → 国名（アルファベット順）
+  const regionOrder = ['Africa', 'Asia', 'Central America and Caribbean', 'Europe', 'Middle East', 'North America', 'Oceania', 'Southeast Asia', 'South America'];
+  const domesticOrder = ['Alaska/Hawaii', 'APO/FPO', 'US Protectorates', 'PO Box'];
+
+  const regions = regionOrder.filter(r => allExcludedDisplayNames.has(r));
+  const domestics = domesticOrder.filter(d => allExcludedDisplayNames.has(d));
+  const countries = [...allExcludedDisplayNames]
+    .filter(n => !regionOrder.includes(n) && !domesticOrder.includes(n))
+    .sort();
+
+  const columnNames = [...regions, ...domestics, ...countries];
+
+  // Step 3: Excelを生成
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('除外国設定');
+
+  // ヘッダー
+  const headers = ['policy_name', 'policy_id', ...columnNames];
+  const headerRow = sheet.addRow(headers);
+
+  // ヘッダースタイル
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+
+  // 列幅
+  sheet.getColumn(1).width = 40; // policy_name
+  sheet.getColumn(2).width = 15; // policy_id
+  for (let i = 3; i <= headers.length; i++) {
+    sheet.getColumn(i).width = 4; // 国/地域列は狭く（xだけなので）
+  }
+
+  // リージョン列の背景色（区別しやすく）
+  const regionColCount = regions.length;
+
+  // オートフィルター
+  sheet.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + Math.min(headers.length, 26))}1` };
+  // 26列超の場合はexceljsのautoFilterにオブジェクト形式を使う
+  // 実際にはsheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+
+  // ヘッダー行を固定、policy_name/policy_id列も固定
+  sheet.views = [{ state: 'frozen', xSplit: 2, ySplit: 1 }];
+
+  // Step 4: データ行
+  for (let i = 0; i < allPolicyData.length; i++) {
+    const pd = allPolicyData[i];
+    const rowData: (string)[] = [pd.name, pd.id];
+    for (const col of columnNames) {
+      rowData.push(pd.excludedNames.has(col) ? 'x' : '');
+    }
+    const row = sheet.addRow(rowData);
+
+    // 交互の背景色
+    if (i % 2 === 1) {
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+    }
+
+    // x のセルを中央揃え
+    for (let c = 3; c <= headers.length; c++) {
+      row.getCell(c).alignment = { horizontal: 'center' };
+    }
+  }
+
+  // リージョン列ヘッダーに薄い緑背景（リージョンと国を区別）
+  for (let c = 3; c < 3 + regionColCount; c++) {
+    headerRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E7D32' } };
+  }
+
+  await workbook.xlsx.writeFile(abs);
+  console.log(chalk.green(`\n✔ ${abs} に保存しました（${policies.length}ポリシー × ${columnNames.length}列）`));
 }
 ```
 
-修正後（高速）:
+## import-all.ts の実装
+
+ピボット形式のExcelを読み込み、eBayに反映する。
+
 ```typescript
-for (let i = 0; i < policies.length; i++) {
-  const p = policies[i];
-  console.log(chalk.gray(`  [${i + 1}/${policies.length}] ${p.name}`));
-  const excluded = p.shipToLocations?.regionExcluded || [];
-  // ...以下同じ処理
+import ExcelJS from 'exceljs';
+import chalk from 'chalk';
+import path from 'path';
+import { getFulfillmentPolicy, updateFulfillmentPolicy } from '../lib/ebay-api';
+import { regionMapping, countryToIso } from '../data/definitions';
+
+// 表示名→eBay APIに送る名前に変換
+function displayNameToApiName(displayName: string): string {
+  // リージョン: 表示名→eBay内部名
+  if (regionMapping[displayName]) {
+    return regionMapping[displayName];
+  }
+  // 国名→ISOコード
+  if (countryToIso[displayName]) {
+    return countryToIso[displayName];
+  }
+  // domestic/PO Box/ISOコードはそのまま
+  return displayName;
+}
+
+export async function importAllCommand(opts: { token?: string; marketplaceId?: string; file: string; dryRun?: boolean }) {
+  const abs = path.resolve(opts.file);
+  const dryRun = opts.dryRun || false;
+
+  console.log(chalk.cyan(`${abs} を読み込み中...`));
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(abs);
+  const sheet = workbook.getWorksheet('除外国設定') || workbook.getWorksheet(1);
+  if (!sheet) throw new Error('シートが見つかりません');
+
+  // ヘッダー行から列名を取得
+  const headerRow = sheet.getRow(1);
+  const headers: string[] = [];
+  headerRow.eachCell((cell, colNum) => {
+    headers[colNum] = String(cell.value || '');
+  });
+
+  // policy_id列を特定
+  const policyIdCol = headers.indexOf('policy_id');
+  if (policyIdCol === -1) throw new Error('policy_id列が見つかりません');
+
+  // 国/地域列（3列目以降）
+  const regionColumns: Array<{ colNum: number; displayName: string }> = [];
+  for (let c = 3; c < headers.length + 1; c++) {
+    if (headers[c] && headers[c] !== 'policy_name' && headers[c] !== 'policy_id') {
+      regionColumns.push({ colNum: c, displayName: headers[c] });
+    }
+  }
+
+  // 各行を処理
+  let updatedCount = 0;
+  let skippedCount = 0;
+  const totalRows = sheet.rowCount - 1; // ヘッダー除く
+
+  for (let rowNum = 2; rowNum <= sheet.rowCount; rowNum++) {
+    const row = sheet.getRow(rowNum);
+    const policyId = String(row.getCell(policyIdCol).value || '').trim();
+    const policyName = String(row.getCell(1).value || '').trim();
+    if (!policyId) continue;
+
+    // この行のexclude対象を収集
+    const regionExcluded: Array<{ regionName: string }> = [];
+    for (const rc of regionColumns) {
+      const cellValue = String(row.getCell(rc.colNum).value || '').trim().toLowerCase();
+      if (cellValue === 'x' || cellValue === 'exclude') {
+        const apiName = displayNameToApiName(rc.displayName);
+        regionExcluded.push({ regionName: apiName });
+      }
+    }
+
+    // 現在のポリシーを取得して比較
+    const currentPolicy = await getFulfillmentPolicy(opts.token, policyId);
+    const currentExcluded = currentPolicy.shipToLocations?.regionExcluded || [];
+    const currentNames = new Set(currentExcluded.map((r: any) => r.regionName));
+    const newNames = new Set(regionExcluded.map(r => r.regionName));
+
+    const hasChanges = currentNames.size !== newNames.size ||
+      [...currentNames].some(n => !newNames.has(n));
+
+    if (!hasChanges) {
+      skippedCount++;
+      continue;
+    }
+
+    const added = [...newNames].filter(n => !currentNames.has(n));
+    const removed = [...currentNames].filter(n => !newNames.has(n));
+
+    console.log(chalk.cyan(`\n  [${policyName || policyId}]`));
+    if (added.length > 0) console.log(chalk.red(`    + 除外追加: ${added.join(', ')}`));
+    if (removed.length > 0) console.log(chalk.green(`    - 除外解除: ${removed.join(', ')}`));
+
+    if (dryRun) {
+      console.log(chalk.yellow('    (ドライラン)'));
+      updatedCount++;
+      continue;
+    }
+
+    await updateFulfillmentPolicy(opts.token, policyId, {
+      ...currentPolicy,
+      shipToLocations: { ...currentPolicy.shipToLocations, regionExcluded },
+    });
+    console.log(chalk.green('    ✔ 更新完了'));
+    updatedCount++;
+  }
+
+  console.log('');
+  if (dryRun) {
+    console.log(chalk.yellow(`ドライラン完了: ${updatedCount}件変更予定、${skippedCount}件変更なし`));
+  } else {
+    console.log(chalk.green(`✔ 完了: ${updatedCount}件更新、${skippedCount}件変更なし`));
+  }
 }
 ```
 
-つまり:
-1. `getFulfillmentPolicy` のimportを削除（使わなくなるため）
-2. ループ内の `await getFulfillmentPolicy(...)` を削除
-3. `detail.shipToLocations` を `p.shipToLocations` に変更
-4. それ以外のロジック（行の追加、スタイル等）はそのまま維持
+## ビルド確認
+`npx tsc` でエラーがないことを確認。
 
 ## ファイル
-src/commands/export-all.ts のみ修正
+- 書き換え: src/commands/export-all.ts
+- 書き換え: src/commands/import-all.ts
