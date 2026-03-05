@@ -4,7 +4,8 @@
   "description": "CLI tool to manage eBay shipping exclusion policies via CSV",
   "main": "dist/index.js",
   "bin": {
-    "ebay-exclude": "dist/index.js"
+    "ebay-exclude": "dist/index.js",
+    "ebay-exclude-mcp": "dist/mcp-server.js"
   },
   "scripts": {
     "build": "tsc",
@@ -20,6 +21,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "axios": "^1.7.0",
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
