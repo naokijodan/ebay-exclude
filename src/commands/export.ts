@@ -4,7 +4,8 @@ import chalk from 'chalk';
 import { getFulfillmentPolicies, getFulfillmentPolicy } from '../lib/ebay-api';
 import { writeCSV } from '../lib/csv-handler';
 import { ExclusionRule } from '../types';
-import { regionMapping } from '../data/definitions';
+import { regionMapping, countryToIso } from '../data/definitions';
+import { classifyRegionName } from '../lib/classify-region';
 
 interface ExportOptions {
   token?: string;
@@ -17,17 +18,24 @@ const reverseRegionMapping: Record<string, string> = Object.fromEntries(
   Object.entries(regionMapping).map(([k, v]) => [v, k])
 );
 
-function regionExcludedToRules(regionExcluded: Array<{ regionName: string; regionType: string }>): ExclusionRule[] {
+function regionExcludedToRules(regionExcluded: Array<{ regionName: string; regionType?: string }>): ExclusionRule[] {
   const rules: ExclusionRule[] = [];
   for (const r of regionExcluded || []) {
-    if (r.regionType === 'COUNTRY_REGION') {
+    const rType = r.regionType || classifyRegionName(r.regionName);
+    if (rType === 'COUNTRY_REGION') {
       const regionDisplay = reverseRegionMapping[r.regionName] || r.regionName;
       rules.push({ type: 'region', value: regionDisplay, action: 'exclude', note: '' });
-    } else if (r.regionType === 'COUNTRY') {
-      rules.push({ type: 'country', value: r.regionName, action: 'exclude', note: '' });
-    } else if (r.regionType === 'STATE_OR_PROVINCE') {
+    } else if (rType === 'COUNTRY') {
+      // ISOコードの場合は国名に変換して表示
+      const isoToCountry: Record<string, string> = {};
+      for (const [name, iso] of Object.entries(countryToIso)) {
+        isoToCountry[iso] = name;
+      }
+      const displayName = isoToCountry[r.regionName] || r.regionName;
+      rules.push({ type: 'country', value: displayName, action: 'exclude', note: '' });
+    } else if (rType === 'STATE_OR_PROVINCE') {
       rules.push({ type: 'domestic', value: r.regionName, action: 'exclude', note: '' });
-    } else if (r.regionType === 'PO_BOX') {
+    } else if (rType === 'PO_BOX') {
       rules.push({ type: 'other', value: 'PO Box', action: 'exclude', note: '' });
     }
   }

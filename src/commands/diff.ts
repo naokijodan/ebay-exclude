@@ -3,6 +3,7 @@ import { parseCSV } from '../lib/csv-handler';
 import { resolveExclusions } from '../lib/expansion-engine';
 import { getFulfillmentPolicies, getFulfillmentPolicy } from '../lib/ebay-api';
 import { regionMapping } from '../data/definitions';
+import { classifyRegionName } from '../lib/classify-region';
 
 interface DiffOptions {
   token?: string;
@@ -35,11 +36,15 @@ export async function diffCommand(opts: DiffOptions) {
     const policy = await getFulfillmentPolicy(opts.token, targetPolicyId!);
     const current = policy.shipToLocations?.regionExcluded || [];
 
-    const currentRegions = new Set(current.filter((x) => x.regionType === 'COUNTRY_REGION').map((x) => x.regionName));
+    const currentRegions = new Set(
+      current.filter((x) => classifyRegionName(x.regionName) === 'COUNTRY_REGION').map((x) => x.regionName)
+    );
     const desiredRegions = new Set(
       desired.regionExcluded.filter((x) => x.regionType === 'COUNTRY_REGION').map((x) => x.regionName)
     );
-    const currentCountries = new Set(current.filter((x) => x.regionType === 'COUNTRY').map((x) => x.regionName));
+    const currentCountries = new Set(
+      current.filter((x) => classifyRegionName(x.regionName) === 'COUNTRY').map((x) => x.regionName)
+    );
     const desiredCountries = new Set(
       desired.regionExcluded.filter((x) => x.regionType === 'COUNTRY').map((x) => x.regionName)
     );

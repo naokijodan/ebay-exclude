@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { getFulfillmentPolicies } from '../lib/ebay-api';
+import { classifyRegionName } from '../lib/classify-region';
 
 interface ListOptions {
   token?: string;
@@ -17,8 +18,10 @@ export async function listCommand(opts: ListOptions) {
 
     const rows = filtered.map((p) => {
       const excluded = p.shipToLocations?.regionExcluded || [];
-      const regions = excluded.filter((e) => e.regionType === 'COUNTRY_REGION').map((e) => e.regionName);
-      const countries = excluded.filter((e) => e.regionType === 'COUNTRY').length;
+      const regions = excluded
+        .filter((e) => classifyRegionName(e.regionName) === 'COUNTRY_REGION')
+        .map((e) => e.regionName);
+      const countries = excluded.filter((e) => classifyRegionName(e.regionName) === 'COUNTRY').length;
       return {
         policyId: p.fulfillmentPolicyId,
         name: p.name,

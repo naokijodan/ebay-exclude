@@ -4,6 +4,7 @@ import { parseCSV } from '../lib/csv-handler';
 import { resolveExclusions } from '../lib/expansion-engine';
 import { getFulfillmentPolicies, getFulfillmentPolicy, updateFulfillmentPolicy } from '../lib/ebay-api';
 import { computeRulesHash, loadState, recordPolicyState, saveState } from '../lib/state-manager';
+import { classifyRegionName } from '../lib/classify-region';
 
 interface ApplyOptions {
   token?: string;
@@ -14,13 +15,16 @@ interface ApplyOptions {
   dryRun?: boolean;
 }
 
-function canonRegionExcluded(arr: Array<{ regionName: string; regionType: string }>) {
+function canonRegionExcluded(arr: Array<{ regionName: string; regionType?: string }>) {
   return (arr || [])
-    .map((x) => ({ regionName: x.regionName, regionType: x.regionType }))
+    .map((x) => ({ regionName: x.regionName, regionType: x.regionType || classifyRegionName(x.regionName) }))
     .sort((a, b) => `${a.regionType}:${a.regionName}`.localeCompare(`${b.regionType}:${b.regionName}`));
 }
 
-function equalRegionExcluded(a: Array<{ regionName: string; regionType: string }>, b: Array<{ regionName: string; regionType: string }>) {
+function equalRegionExcluded(
+  a: Array<{ regionName: string; regionType?: string }>,
+  b: Array<{ regionName: string; regionType?: string }>
+) {
   const ca = canonRegionExcluded(a);
   const cb = canonRegionExcluded(b);
   if (ca.length !== cb.length) return false;

@@ -1,139 +1,157 @@
-~/Desktop/ebay-exclude/src/commands/wizard.ts を書き直してください。
+ebay-excludeのeBay API応答パース処理を修正してください。
 
-## 目的
-現在のメニュー番号入力方式を、質問から始まる会話形式に変更する。
-ユーザーがCLIに慣れていなくても、質問に答えるだけで操作が進む。
+## 問題
+eBay APIの `GET /sell/account/v1/fulfillment_policy` のレスポンスで、
+`shipToLocations.regionExcluded` の各エントリには `regionName` のみ存在し、
+`regionType` は含まれていません。
 
-## 現在のファイル
-~/Desktop/ebay-exclude/src/commands/wizard.ts
-
-## 新しいUXフロー
-
-起動すると、まずウェルカムメッセージと最初の質問が表示される：
-
-```
-╔══════════════════════════════════════╗
-║   ebay-exclude - 発送除外国管理     ║
-╚══════════════════════════════════════╝
-
-こんにちは！eBayの発送除外国を管理します。
-
-? 何をしますか？
-  1) 現在の設定を確認する
-  2) 除外国を変更する
-  3) 終了
-
->
+実際のAPI応答例:
+```json
+{
+  "regionExcluded": [
+    {"regionName": "AF"},
+    {"regionName": "Africa"},
+    {"regionName": "Alaska/Hawaii"},
+    {"regionName": "APO/FPO"},
+    {"regionName": "AS"},
+    {"regionName": "Central America and Caribbean"},
+    {"regionName": "CN"},
+    {"regionName": "Europe"},
+    {"regionName": "FJ"}
+  ]
+}
 ```
 
-### 「1) 現在の設定を確認する」を選んだ場合:
+しかし現在のコードは `r.regionType === 'COUNTRY_REGION'` 等で判定しているため、
+全てスキップされて0件になっています。
 
-```
-ポリシー一覧を取得中...
+## 修正方針
+`regionName` から種類を推定するユーティリティ関数を作成し、各コマンドで使用する。
 
-[ポリシー一覧が表示される]
+### 判定ロジック
+1. `regionMapping` のキーまたは値に一致 → リージョン（COUNTRY_REGION）
+   - "Africa", "Asia", "Central America and Caribbean", "Europe", "Middle East",
+     "North America", "Oceania", "Southeast Asia", "South America"
+   - およびeBay内部名: "Central_America_and_Caribbean", "Middle_East", "North_America", "Southeast_Asia", "South_America"
+2. 特殊名 → その他
+   - "Alaska/Hawaii", "APO/FPO", "US Protectorates" → domestic (STATE_OR_PROVINCE)
+   - "PO Box" → other (PO_BOX)
+3. 2文字のISO国コード（大文字） → 国（COUNTRY）
+4. `countryToIso` の値に一致する2文字コード → 国（COUNTRY）
+5. `countryToIso` のキーに一致する国名 → 国（COUNTRY）
+6. それ以外 → 不明だが国として扱う
 
-? 次にどうしますか？
-  1) 特定のポリシーの除外設定をCSVに出力する
-  2) メインメニューに戻る
+### 新規ファイル: src/lib/classify-region.ts
 
->
-```
+```typescript
+import { regionMapping, countryToIso } from '../data/definitions';
 
-CSVに出力を選んだ場合:
-```
-? 出力ファイル名は？（Enterでexport.csv）:
+export type RegionType = 'COUNTRY_REGION' | 'COUNTRY' | 'STATE_OR_PROVINCE' | 'PO_BOX';
 
-export.csv に保存しました！
+// regionMappingのキーと値を両方含むSet
+const regionNames = new Set([
+  ...Object.keys(regionMapping),
+  ...Object.values(regionMapping),
+]);
 
-? 次にどうしますか？
-  1) このCSVを編集してeBayに反映する手順を見る
-  2) メインメニューに戻る
-```
+// 特殊地域
+const domesticRegions = new Set(['Alaska/Hawaii', 'APO/FPO', 'US Protectorates']);
 
-「手順を見る」を選んだ場合:
-```
-━━━ CSVを編集してeBayに反映する手順 ━━━
+// ISO国コードのSet（2文字大文字）
+const isoCodes = new Set(Object.values(countryToIso));
 
-  Step 1: export.csv をExcelやテキストエディタで開く
-  Step 2: action列を変更する
-          - exclude = 除外する
-          - include = 除外しない（許可する）
-  Step 3: 保存したら、このツールに戻って
-          「2) 除外国を変更する」を選んでください
+// 国名のSet
+const countryNames = new Set(Object.keys(countryToIso));
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-? メインメニューに戻りますか？(Enter)
-```
-
-### 「2) 除外国を変更する」を選んだ場合:
-
-```
-? CSVファイルはもう準備できていますか？
-  1) はい、CSVがあります
-  2) いいえ、まずテンプレートCSVを作成する
-  3) メインメニューに戻る
-
->
-```
-
-「テンプレートCSVを作成する」を選んだ場合:
-```
-? 出力ファイル名は？（Enterでexclusions.csv）:
-
-exclusions.csv を作成しました！
-
-━━━ 次のステップ ━━━
-  1. exclusions.csv をExcelやテキストエディタで開く
-  2. 除外したい地域/国のaction列を「exclude」に変更
-  3. 許可したい国のaction列を「include」に変更
-  4. 保存して、再度このウィザードを起動してください
-━━━━━━━━━━━━━━━━━━━━━━━
-
-? メインメニューに戻りますか？(Enter)
+export function classifyRegionName(regionName: string): RegionType {
+  if (regionNames.has(regionName)) return 'COUNTRY_REGION';
+  if (domesticRegions.has(regionName)) return 'STATE_OR_PROVINCE';
+  if (regionName === 'PO Box') return 'PO_BOX';
+  if (/^[A-Z]{2}$/.test(regionName) && isoCodes.has(regionName)) return 'COUNTRY';
+  if (/^[A-Z]{2}$/.test(regionName)) return 'COUNTRY'; // 2文字大文字はISOコードと推定
+  if (countryNames.has(regionName)) return 'COUNTRY';
+  return 'COUNTRY'; // デフォルトは国扱い
+}
 ```
 
-「CSVがあります」を選んだ場合:
-```
-? CSVファイルのパスを入力してください
-  （ファイルをここにドラッグ＆ドロップもできます）
+### 修正ファイル1: src/commands/list.ts
 
->
+行20-21を修正:
 
-変更内容をプレビューしています...
-
-[diffの結果が表示される]
-
-? この変更をeBayに適用しますか？
-  1) はい、適用する
-  2) いいえ、やめる
-
->
+修正前:
+```typescript
+const regions = excluded.filter((e) => e.regionType === 'COUNTRY_REGION').map((e) => e.regionName);
+const countries = excluded.filter((e) => e.regionType === 'COUNTRY').length;
 ```
 
-「はい」を選んだ場合:
+修正後:
+```typescript
+import { classifyRegionName } from '../lib/classify-region';
+// ...
+const regions = excluded.filter((e) => classifyRegionName(e.regionName) === 'COUNTRY_REGION').map((e) => e.regionName);
+const countries = excluded.filter((e) => classifyRegionName(e.regionName) === 'COUNTRY').length;
 ```
-適用中...
 
-✔ 完了しました！変更がeBayに反映されました。
+importを先頭に追加すること。
 
-? メインメニューに戻りますか？(Enter)
+### 修正ファイル2: src/commands/export.ts
+
+`regionExcludedToRules` 関数を修正:
+
+修正前:
+```typescript
+function regionExcludedToRules(regionExcluded: Array<{ regionName: string; regionType: string }>): ExclusionRule[] {
+  const rules: ExclusionRule[] = [];
+  for (const r of regionExcluded || []) {
+    if (r.regionType === 'COUNTRY_REGION') {
 ```
 
-## 実装の注意点
+修正後:
+```typescript
+import { classifyRegionName } from '../lib/classify-region';
+// ...
+function regionExcludedToRules(regionExcluded: Array<{ regionName: string; regionType?: string }>): ExclusionRule[] {
+  const rules: ExclusionRule[] = [];
+  for (const r of regionExcluded || []) {
+    const rType = r.regionType || classifyRegionName(r.regionName);
+    if (rType === 'COUNTRY_REGION') {
+      const regionDisplay = reverseRegionMapping[r.regionName] || r.regionName;
+      rules.push({ type: 'region', value: regionDisplay, action: 'exclude', note: '' });
+    } else if (rType === 'COUNTRY') {
+      // ISOコードの場合は国名に変換して表示
+      const isoToCountry: Record<string, string> = {};
+      for (const [name, iso] of Object.entries(countryToIso)) {
+        isoToCountry[iso] = name;
+      }
+      const displayName = isoToCountry[r.regionName] || r.regionName;
+      rules.push({ type: 'country', value: displayName, action: 'exclude', note: '' });
+    } else if (rType === 'STATE_OR_PROVINCE') {
+      rules.push({ type: 'domestic', value: r.regionName, action: 'exclude', note: '' });
+    } else if (rType === 'PO_BOX') {
+      rules.push({ type: 'other', value: 'PO Box', action: 'exclude', note: '' });
+    }
+  }
+  return rules;
+}
+```
 
-- readline を使用（追加パッケージ不要）
-- chalk@4（CommonJS）を使用
-- 子プロセスで既存コマンドを実行（runCommand関数は現在のものを流用）
-- fileExists関数も流用
-- 質問のプロンプトは `> ` にする
-- 番号入力は 1, 2, 3 等のシンプルな数字
-- 無効な入力の場合は「1-3の番号を入力してください」等のエラーメッセージ
-- Enter だけ押した場合のデフォルト値対応
-- ドラッグ＆ドロップされたパスは前後の空白をtrimする
-- 各操作後は必ず「メインメニューに戻る」か「終了」の選択肢を出す
-- runWizard() のexport、関数シグネチャは変えない
+countryToIsoのimportも先頭に追加:
+```typescript
+import { countryToIso } from '../data/definitions';
+```
 
-## ファイル
-src/commands/wizard.ts のみ書き換え。他のファイルは変更しない。
+### 修正ファイル3: src/commands/diff.ts（もし同様のregionType依存があれば）
+同じパターンで修正してください。grepで `regionType` を検索して確認。
+
+### 修正ファイル4: src/commands/apply.ts（もし同様のregionType依存があれば）
+同じパターンで修正してください。grepで `regionType` を検索して確認。
+
+## ビルド確認
+`npx tsc` でコンパイルエラーがないことを確認してください。
+
+## ファイル一覧
+- 新規: src/lib/classify-region.ts
+- 修正: src/commands/list.ts
+- 修正: src/commands/export.ts
+- 修正: src/commands/diff.ts（必要なら）
+- 修正: src/commands/apply.ts（必要なら）
