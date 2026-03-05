@@ -8,6 +8,8 @@ import { exportCommand } from './commands/export';
 import { diffCommand } from './commands/diff';
 import { applyCommand } from './commands/apply';
 import { runWizard } from './commands/wizard';
+import { exportAllCommand } from './commands/export-all';
+import { importAllCommand } from './commands/import-all';
 
 const program = new Command();
 
@@ -63,6 +65,24 @@ program
   });
 
 program
+  .command('export-all')
+  .description('Export all policies exclusions to a single Excel file')
+  .option('-o, --output <file>', 'Output file path (default: ebay-policies.xlsx)')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
+      process.exit(1);
+    }
+    await exportAllCommand({ token: tokenOverride, marketplaceId: opts.marketplace, output: cmd.output });
+  });
+
+program
   .command('diff <file>')
   .description('Show semantic diff between CSV and current eBay settings')
   .option('--policy <id>', 'Fulfillment policy ID')
@@ -99,6 +119,24 @@ program
       process.exit(1);
     }
     await applyCommand({ token: tokenOverride, marketplaceId: opts.marketplace, file, filter: cmd.filter, force: cmd.force, dryRun: cmd.dryRun });
+  });
+
+program
+  .command('import-all <file>')
+  .description('Import and apply exclusions from an Excel file to eBay')
+  .option('--dry-run', 'Preview changes without applying')
+  .action(async (file, cmd) => {
+    const opts = program.opts();
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
+      process.exit(1);
+    }
+    await importAllCommand({ token: tokenOverride, marketplaceId: opts.marketplace, file, dryRun: cmd.dryRun });
   });
 
 program

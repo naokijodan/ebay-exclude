@@ -78,56 +78,29 @@ async function flowViewCurrent(ask: ReturnType<typeof createAsk>) {
   runCommand('list');
 
   const next = await ask.askNumber('\n? 次にどうしますか？', [
-    '特定のポリシーの除外設定をCSVに出力する',
+    '全ポリシーの除外設定をExcelに出力する',
     'メインメニューに戻る',
   ]);
 
   if (next === 1) {
-    const name = await ask.askText('? 出力ファイル名は？（Enterでexport.csv）:', 'export.csv');
-    runCommand(`export -o "${name}"`);
+    const name = 'ebay-policies.xlsx';
+    runCommand(`export-all -o "${name}"`);
     console.log(`\n${name} に保存しました！`);
-
-    const after = await ask.askNumber('\n? 次にどうしますか？', [
-      'このCSVを編集してeBayに反映する手順を見る',
-      'メインメニューに戻る',
-    ]);
-    if (after === 1) {
-      console.log('');
-      console.log('━━━ CSVを編集してeBayに反映する手順 ━━━');
-      console.log('');
-      console.log('  Step 1: export.csv をExcelやテキストエディタで開く');
-      console.log('  Step 2: action列を変更する');
-      console.log('          - exclude = 除外する');
-      console.log('          - include = 除外しない（許可する）');
-      console.log('  Step 3: 保存したら、このツールに戻って');
-      console.log('          「2) 除外国を変更する」を選んでください');
-      console.log('');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('');
-      await ask.askEnter('? メインメニューに戻りますか？(Enter)');
-    }
+    await ask.askEnter('? メインメニューに戻りますか？(Enter)');
   }
 }
 
 async function flowChangeExclusions(ask: ReturnType<typeof createAsk>) {
-  const choice = await ask.askNumber('? CSVファイルはもう準備できていますか？', [
-    'はい、CSVがあります',
-    'いいえ、まずテンプレートCSVを作成する',
+  const choice = await ask.askNumber('? Excelファイルはもう準備できていますか？', [
+    'はい、編集済みのExcelがあります',
+    'いいえ、まず現在の設定をExcelに出力する',
     'メインメニューに戻る',
   ]);
 
   if (choice === 2) {
-    const outName = await ask.askText('? 出力ファイル名は？（Enterでexclusions.csv）:', 'exclusions.csv');
-    runCommand(`init -o "${outName}"`);
-    console.log(`\n${outName} を作成しました！`);
-    console.log('');
-    console.log('━━━ 次のステップ ━━━');
-    console.log('  1. exclusions.csv をExcelやテキストエディタで開く');
-    console.log('  2. 除外したい地域/国のaction列を「exclude」に変更');
-    console.log('  3. 許可したい国のaction列を「include」に変更');
-    console.log('  4. 保存して、再度このウィザードを起動してください');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('');
+    const name = 'ebay-policies.xlsx';
+    runCommand(`export-all -o "${name}"`);
+    console.log(`\n${name} に保存しました！`);
     await ask.askEnter('? メインメニューに戻りますか？(Enter)');
     return;
   }
@@ -136,10 +109,10 @@ async function flowChangeExclusions(ask: ReturnType<typeof createAsk>) {
     return; // main menu
   }
 
-  // choice === 1: CSVあり
-  let csvPath = '';
+  // choice === 1: Excelあり
+  let xlsxPath = '';
   while (true) {
-    const p = await ask.askText(`?\nCSVファイルのパスを入力してください\n  （ファイルをここにドラッグ＆ドロップもできます）\n`);
+    const p = await ask.askText(`?\nExcelファイルのパスを入力してください\n  （ファイルをここにドラッグ＆ドロップもできます）\n`);
     const trimmed = p.trim();
     if (!trimmed) {
       console.log(chalk.red('ファイルパスを入力してください。'));
@@ -149,12 +122,12 @@ async function flowChangeExclusions(ask: ReturnType<typeof createAsk>) {
       console.log(chalk.red(`ファイルが見つかりません: ${trimmed}`));
       continue;
     }
-    csvPath = trimmed;
+    xlsxPath = trimmed;
     break;
   }
 
   console.log('\n変更内容をプレビューしています...\n');
-  runCommand(`diff "${csvPath}"`);
+  runCommand(`import-all --dry-run "${xlsxPath}"`);
 
   const apply = await ask.askNumber('\n? この変更をeBayに適用しますか？', [
     'はい、適用する',
@@ -163,7 +136,7 @@ async function flowChangeExclusions(ask: ReturnType<typeof createAsk>) {
 
   if (apply === 1) {
     console.log('\n適用中...\n');
-    runCommand(`apply "${csvPath}"`);
+    runCommand(`import-all "${xlsxPath}"`);
     console.log(chalk.green('✔ 完了しました！変更がeBayに反映されました。'));
     console.log('');
     await ask.askEnter('? メインメニューに戻りますか？(Enter)');
@@ -200,4 +173,3 @@ export async function runWizard(): Promise<void> {
 
   rl.close();
 }
-

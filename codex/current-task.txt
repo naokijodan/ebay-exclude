@@ -1,157 +1,38 @@
-ebay-excludeのeBay API応答パース処理を修正してください。
+~/Desktop/ebay-exclude/src/commands/export-all.ts を最適化してください。
 
 ## 問題
-eBay APIの `GET /sell/account/v1/fulfillment_policy` のレスポンスで、
-`shipToLocations.regionExcluded` の各エントリには `regionName` のみ存在し、
-`regionType` は含まれていません。
+現在の実装は312ポリシーに対して個別にgetFulfillmentPolicy()を呼んでいるため非常に遅い。
+しかし、getFulfillmentPolicies()の一覧APIレスポンスに既にshipToLocations.regionExcludedが含まれている。
 
-実際のAPI応答例:
-```json
-{
-  "regionExcluded": [
-    {"regionName": "AF"},
-    {"regionName": "Africa"},
-    {"regionName": "Alaska/Hawaii"},
-    {"regionName": "APO/FPO"},
-    {"regionName": "AS"},
-    {"regionName": "Central America and Caribbean"},
-    {"regionName": "CN"},
-    {"regionName": "Europe"},
-    {"regionName": "FJ"}
-  ]
+## 修正内容
+getFulfillmentPolicy()の個別呼び出しループを削除し、
+getFulfillmentPolicies()の結果だけで全データを取得する。
+
+修正前（遅い）:
+```typescript
+for (let i = 0; i < policies.length; i++) {
+  const p = policies[i];
+  const detail = await getFulfillmentPolicy(opts.token, p.fulfillmentPolicyId);
+  const excluded = detail.shipToLocations?.regionExcluded || [];
+  // ...
 }
 ```
 
-しかし現在のコードは `r.regionType === 'COUNTRY_REGION'` 等で判定しているため、
-全てスキップされて0件になっています。
-
-## 修正方針
-`regionName` から種類を推定するユーティリティ関数を作成し、各コマンドで使用する。
-
-### 判定ロジック
-1. `regionMapping` のキーまたは値に一致 → リージョン（COUNTRY_REGION）
-   - "Africa", "Asia", "Central America and Caribbean", "Europe", "Middle East",
-     "North America", "Oceania", "Southeast Asia", "South America"
-   - およびeBay内部名: "Central_America_and_Caribbean", "Middle_East", "North_America", "Southeast_Asia", "South_America"
-2. 特殊名 → その他
-   - "Alaska/Hawaii", "APO/FPO", "US Protectorates" → domestic (STATE_OR_PROVINCE)
-   - "PO Box" → other (PO_BOX)
-3. 2文字のISO国コード（大文字） → 国（COUNTRY）
-4. `countryToIso` の値に一致する2文字コード → 国（COUNTRY）
-5. `countryToIso` のキーに一致する国名 → 国（COUNTRY）
-6. それ以外 → 不明だが国として扱う
-
-### 新規ファイル: src/lib/classify-region.ts
-
+修正後（高速）:
 ```typescript
-import { regionMapping, countryToIso } from '../data/definitions';
-
-export type RegionType = 'COUNTRY_REGION' | 'COUNTRY' | 'STATE_OR_PROVINCE' | 'PO_BOX';
-
-// regionMappingのキーと値を両方含むSet
-const regionNames = new Set([
-  ...Object.keys(regionMapping),
-  ...Object.values(regionMapping),
-]);
-
-// 特殊地域
-const domesticRegions = new Set(['Alaska/Hawaii', 'APO/FPO', 'US Protectorates']);
-
-// ISO国コードのSet（2文字大文字）
-const isoCodes = new Set(Object.values(countryToIso));
-
-// 国名のSet
-const countryNames = new Set(Object.keys(countryToIso));
-
-export function classifyRegionName(regionName: string): RegionType {
-  if (regionNames.has(regionName)) return 'COUNTRY_REGION';
-  if (domesticRegions.has(regionName)) return 'STATE_OR_PROVINCE';
-  if (regionName === 'PO Box') return 'PO_BOX';
-  if (/^[A-Z]{2}$/.test(regionName) && isoCodes.has(regionName)) return 'COUNTRY';
-  if (/^[A-Z]{2}$/.test(regionName)) return 'COUNTRY'; // 2文字大文字はISOコードと推定
-  if (countryNames.has(regionName)) return 'COUNTRY';
-  return 'COUNTRY'; // デフォルトは国扱い
+for (let i = 0; i < policies.length; i++) {
+  const p = policies[i];
+  console.log(chalk.gray(`  [${i + 1}/${policies.length}] ${p.name}`));
+  const excluded = p.shipToLocations?.regionExcluded || [];
+  // ...以下同じ処理
 }
 ```
 
-### 修正ファイル1: src/commands/list.ts
+つまり:
+1. `getFulfillmentPolicy` のimportを削除（使わなくなるため）
+2. ループ内の `await getFulfillmentPolicy(...)` を削除
+3. `detail.shipToLocations` を `p.shipToLocations` に変更
+4. それ以外のロジック（行の追加、スタイル等）はそのまま維持
 
-行20-21を修正:
-
-修正前:
-```typescript
-const regions = excluded.filter((e) => e.regionType === 'COUNTRY_REGION').map((e) => e.regionName);
-const countries = excluded.filter((e) => e.regionType === 'COUNTRY').length;
-```
-
-修正後:
-```typescript
-import { classifyRegionName } from '../lib/classify-region';
-// ...
-const regions = excluded.filter((e) => classifyRegionName(e.regionName) === 'COUNTRY_REGION').map((e) => e.regionName);
-const countries = excluded.filter((e) => classifyRegionName(e.regionName) === 'COUNTRY').length;
-```
-
-importを先頭に追加すること。
-
-### 修正ファイル2: src/commands/export.ts
-
-`regionExcludedToRules` 関数を修正:
-
-修正前:
-```typescript
-function regionExcludedToRules(regionExcluded: Array<{ regionName: string; regionType: string }>): ExclusionRule[] {
-  const rules: ExclusionRule[] = [];
-  for (const r of regionExcluded || []) {
-    if (r.regionType === 'COUNTRY_REGION') {
-```
-
-修正後:
-```typescript
-import { classifyRegionName } from '../lib/classify-region';
-// ...
-function regionExcludedToRules(regionExcluded: Array<{ regionName: string; regionType?: string }>): ExclusionRule[] {
-  const rules: ExclusionRule[] = [];
-  for (const r of regionExcluded || []) {
-    const rType = r.regionType || classifyRegionName(r.regionName);
-    if (rType === 'COUNTRY_REGION') {
-      const regionDisplay = reverseRegionMapping[r.regionName] || r.regionName;
-      rules.push({ type: 'region', value: regionDisplay, action: 'exclude', note: '' });
-    } else if (rType === 'COUNTRY') {
-      // ISOコードの場合は国名に変換して表示
-      const isoToCountry: Record<string, string> = {};
-      for (const [name, iso] of Object.entries(countryToIso)) {
-        isoToCountry[iso] = name;
-      }
-      const displayName = isoToCountry[r.regionName] || r.regionName;
-      rules.push({ type: 'country', value: displayName, action: 'exclude', note: '' });
-    } else if (rType === 'STATE_OR_PROVINCE') {
-      rules.push({ type: 'domestic', value: r.regionName, action: 'exclude', note: '' });
-    } else if (rType === 'PO_BOX') {
-      rules.push({ type: 'other', value: 'PO Box', action: 'exclude', note: '' });
-    }
-  }
-  return rules;
-}
-```
-
-countryToIsoのimportも先頭に追加:
-```typescript
-import { countryToIso } from '../data/definitions';
-```
-
-### 修正ファイル3: src/commands/diff.ts（もし同様のregionType依存があれば）
-同じパターンで修正してください。grepで `regionType` を検索して確認。
-
-### 修正ファイル4: src/commands/apply.ts（もし同様のregionType依存があれば）
-同じパターンで修正してください。grepで `regionType` を検索して確認。
-
-## ビルド確認
-`npx tsc` でコンパイルエラーがないことを確認してください。
-
-## ファイル一覧
-- 新規: src/lib/classify-region.ts
-- 修正: src/commands/list.ts
-- 修正: src/commands/export.ts
-- 修正: src/commands/diff.ts（必要なら）
-- 修正: src/commands/apply.ts（必要なら）
+## ファイル
+src/commands/export-all.ts のみ修正
