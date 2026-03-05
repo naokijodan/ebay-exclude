@@ -4,23 +4,7 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// メインメニュー表示
-function showMenu(): void {
-  console.log('');
-  console.log(chalk.cyan('========================================'));
-  console.log(chalk.cyan.bold('  ebay-exclude 操作メニュー'));
-  console.log(chalk.cyan('========================================'));
-  console.log('');
-  console.log('  1. ポリシー一覧を表示');
-  console.log('  2. 現在の除外設定をCSVに出力');
-  console.log('  3. CSVの変更をプレビュー（diff）');
-  console.log('  4. CSVをeBayに適用');
-  console.log('  5. テンプレートCSVを作成');
-  console.log('');
-  console.log('  q. 終了');
-  console.log(chalk.cyan('----------------------------------------'));
-}
-
+// 既存のコマンド呼び出し（流用）
 function runCommand(args: string): void {
   try {
     const projectRoot = path.resolve(__dirname, '..', '..');
@@ -34,6 +18,7 @@ function runCommand(args: string): void {
   }
 }
 
+// 既存のファイル存在チェック（流用）
 function fileExists(filePath: string): boolean {
   try {
     return fs.statSync(filePath).isFile();
@@ -42,105 +27,177 @@ function fileExists(filePath: string): boolean {
   }
 }
 
-async function handleList(): Promise<void> {
+// 入力ヘルパー
+function createAsk(rl: readline.Interface) {
+  const askLine = (q: string): Promise<string> =>
+    new Promise((resolve) => rl.question(q, resolve));
+
+  const askText = async (message: string, defaultValue?: string): Promise<string> => {
+    console.log(message);
+    const ans = await askLine('> ');
+    const v = ans.trim();
+    if (!v && typeof defaultValue !== 'undefined') return defaultValue;
+    return v;
+  };
+
+  const askNumber = async (message: string, choices: string[], defaultIndex?: number): Promise<number> => {
+    console.log(message);
+    for (let i = 0; i < choices.length; i++) {
+      console.log(`  ${i + 1}) ${choices[i]}`);
+    }
+    while (true) {
+      const raw = await askLine('\n> ');
+      const t = raw.trim();
+      if (!t && typeof defaultIndex === 'number') return defaultIndex + 1;
+      const n = Number(t);
+      if (Number.isInteger(n) && n >= 1 && n <= choices.length) return n;
+      console.log(chalk.red(`無効な入力です。${1}-${choices.length}の番号を入力してください。`));
+    }
+  };
+
+  const askEnter = async (message: string): Promise<void> => {
+    console.log(message);
+    await askLine('> ');
+  };
+
+  return { askText, askNumber, askEnter };
+}
+
+function showWelcome(): void {
+  console.log('');
+  console.log('╔══════════════════════════════════════╗');
+  console.log('║   ebay-exclude - 発送除外国管理     ║');
+  console.log('╚══════════════════════════════════════╝');
+  console.log('');
+  console.log('こんにちは！eBayの発送除外国を管理します。');
+  console.log('');
+}
+
+async function flowViewCurrent(ask: ReturnType<typeof createAsk>) {
+  console.log('ポリシー一覧を取得中...');
   runCommand('list');
-}
 
-async function handleExport(ask: (q: string) => Promise<string>): Promise<void> {
-  const name = await ask('出力ファイル名を入力（デフォルト: export.csv）: ');
-  const out = name.trim() || 'export.csv';
-  runCommand(`export -o "${out}"`);
-  console.log(chalk.green(`\nCSVを保存しました: ${out}`));
-}
+  const next = await ask.askNumber('\n? 次にどうしますか？', [
+    '特定のポリシーの除外設定をCSVに出力する',
+    'メインメニューに戻る',
+  ]);
 
-async function handleDiff(ask: (q: string) => Promise<string>): Promise<void> {
-  const csvPath = await ask('CSVファイルのパスを入力: ');
-  const trimmed = csvPath.trim();
-  if (!trimmed) {
-    console.log(chalk.red('ファイルパスが空です'));
-    return;
-  }
-  if (!fileExists(trimmed)) {
-    console.log(chalk.red(`ファイルが見つかりません: ${trimmed}`));
-    return;
-  }
-  runCommand(`diff "${trimmed}"`);
-}
+  if (next === 1) {
+    const name = await ask.askText('? 出力ファイル名は？（Enterでexport.csv）:', 'export.csv');
+    runCommand(`export -o "${name}"`);
+    console.log(`\n${name} に保存しました！`);
 
-async function handleApply(ask: (q: string) => Promise<string>): Promise<void> {
-  const csvPath = await ask('CSVファイルのパスを入力: ');
-  const trimmed = csvPath.trim();
-  if (!trimmed) {
-    console.log(chalk.red('ファイルパスが空です'));
-    return;
-  }
-  if (!fileExists(trimmed)) {
-    console.log(chalk.red(`ファイルが見つかりません: ${trimmed}`));
-    return;
-  }
-
-  console.log(chalk.cyan('\nドライランで確認中...\n'));
-  runCommand(`apply --dry-run "${trimmed}"`);
-
-  const confirm = await ask('\n本当にeBayに適用しますか？ (y/N): ');
-  if (confirm.trim().toLowerCase() === 'y') {
-    console.log(chalk.cyan('\n適用中...\n'));
-    runCommand(`apply "${trimmed}"`);
-    console.log(chalk.green('\n適用が完了しました'));
-  } else {
-    console.log(chalk.yellow('キャンセルしました'));
+    const after = await ask.askNumber('\n? 次にどうしますか？', [
+      'このCSVを編集してeBayに反映する手順を見る',
+      'メインメニューに戻る',
+    ]);
+    if (after === 1) {
+      console.log('');
+      console.log('━━━ CSVを編集してeBayに反映する手順 ━━━');
+      console.log('');
+      console.log('  Step 1: export.csv をExcelやテキストエディタで開く');
+      console.log('  Step 2: action列を変更する');
+      console.log('          - exclude = 除外する');
+      console.log('          - include = 除外しない（許可する）');
+      console.log('  Step 3: 保存したら、このツールに戻って');
+      console.log('          「2) 除外国を変更する」を選んでください');
+      console.log('');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('');
+      await ask.askEnter('? メインメニューに戻りますか？(Enter)');
+    }
   }
 }
 
-async function handleInit(ask: (q: string) => Promise<string>): Promise<void> {
-  const name = await ask('出力ファイル名を入力（デフォルト: exclusions.csv）: ');
-  const out = name.trim() || 'exclusions.csv';
-  runCommand(`init -o "${out}"`);
+async function flowChangeExclusions(ask: ReturnType<typeof createAsk>) {
+  const choice = await ask.askNumber('? CSVファイルはもう準備できていますか？', [
+    'はい、CSVがあります',
+    'いいえ、まずテンプレートCSVを作成する',
+    'メインメニューに戻る',
+  ]);
+
+  if (choice === 2) {
+    const outName = await ask.askText('? 出力ファイル名は？（Enterでexclusions.csv）:', 'exclusions.csv');
+    runCommand(`init -o "${outName}"`);
+    console.log(`\n${outName} を作成しました！`);
+    console.log('');
+    console.log('━━━ 次のステップ ━━━');
+    console.log('  1. exclusions.csv をExcelやテキストエディタで開く');
+    console.log('  2. 除外したい地域/国のaction列を「exclude」に変更');
+    console.log('  3. 許可したい国のaction列を「include」に変更');
+    console.log('  4. 保存して、再度このウィザードを起動してください');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('');
+    await ask.askEnter('? メインメニューに戻りますか？(Enter)');
+    return;
+  }
+
+  if (choice === 3) {
+    return; // main menu
+  }
+
+  // choice === 1: CSVあり
+  let csvPath = '';
+  while (true) {
+    const p = await ask.askText(`?\nCSVファイルのパスを入力してください\n  （ファイルをここにドラッグ＆ドロップもできます）\n`);
+    const trimmed = p.trim();
+    if (!trimmed) {
+      console.log(chalk.red('ファイルパスを入力してください。'));
+      continue;
+    }
+    if (!fileExists(trimmed)) {
+      console.log(chalk.red(`ファイルが見つかりません: ${trimmed}`));
+      continue;
+    }
+    csvPath = trimmed;
+    break;
+  }
+
+  console.log('\n変更内容をプレビューしています...\n');
+  runCommand(`diff "${csvPath}"`);
+
+  const apply = await ask.askNumber('\n? この変更をeBayに適用しますか？', [
+    'はい、適用する',
+    'いいえ、やめる',
+  ]);
+
+  if (apply === 1) {
+    console.log('\n適用中...\n');
+    runCommand(`apply "${csvPath}"`);
+    console.log(chalk.green('✔ 完了しました！変更がeBayに反映されました。'));
+    console.log('');
+    await ask.askEnter('? メインメニューに戻りますか？(Enter)');
+  }
 }
 
 export async function runWizard(): Promise<void> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = createAsk(rl);
 
-  const ask = (question: string): Promise<string> =>
-    new Promise((resolve) => rl.question(question, resolve));
-
-  console.log(chalk.green.bold('\nebay-exclude ウィザードを起動しました'));
-  console.log(chalk.gray('eBay発送除外国を簡単に管理できます\n'));
+  showWelcome();
 
   let running = true;
   while (running) {
-    showMenu();
-    const choice = await ask('番号を入力: ');
+    const main = await ask.askNumber('? 何をしますか？', [
+      '現在の設定を確認する',
+      '除外国を変更する',
+      '終了',
+    ]);
 
-    switch (choice.trim()) {
-      case '1':
-        await handleList();
-        break;
-      case '2':
-        await handleExport(ask);
-        break;
-      case '3':
-        await handleDiff(ask);
-        break;
-      case '4':
-        await handleApply(ask);
-        break;
-      case '5':
-        await handleInit(ask);
-        break;
-      case 'q':
-      case 'Q':
-        running = false;
-        break;
-      default:
-        console.log(chalk.red('無効な番号です。1-5またはqを入力してください。'));
+    if (main === 1) {
+      await flowViewCurrent(ask);
+      continue;
+    }
+    if (main === 2) {
+      await flowChangeExclusions(ask);
+      continue;
+    }
+    if (main === 3) {
+      running = false;
+      break;
     }
   }
 
-  console.log(chalk.green('\nお疲れさまでした！'));
   rl.close();
 }
 
