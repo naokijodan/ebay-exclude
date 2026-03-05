@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import chalk from 'chalk';
 import path from 'path';
 import { getFulfillmentPolicy, updateFulfillmentPolicy } from '../lib/ebay-api';
+import pLimit from 'p-limit';
 import { regionMapping, countryToIso } from '../data/definitions';
 
 // 表示名→eBay APIに送る名前に変換
@@ -47,10 +48,11 @@ export async function importAllCommand(opts: { token?: string; marketplaceId?: s
     }
   }
 
-  // 各行を処理
+  // 各行を処理（並列化）
   let updatedCount = 0;
   let skippedCount = 0;
-  const totalRows = sheet.rowCount - 1; // ヘッダー除く
+  const limit = pLimit(5);
+  const tasks: Array<() => Promise<void>> = [];
 
   for (let rowNum = 2; rowNum <= sheet.rowCount; rowNum++) {
     const row = sheet.getRow(rowNum);
@@ -58,7 +60,6 @@ export async function importAllCommand(opts: { token?: string; marketplaceId?: s
     const policyName = String(row.getCell(1).value || '').trim();
     if (!policyId) continue;
 
-    // この行のexclude対象を収集
     const regionExcluded: Array<{ regionName: string }> = [];
     for (const rc of regionColumns) {
       const cellValue = String(row.getCell(rc.colNum).value || '').trim().toLowerCase();
@@ -68,40 +69,45 @@ export async function importAllCommand(opts: { token?: string; marketplaceId?: s
       }
     }
 
-    // 現在のポリシーを取得して比較
-    const currentPolicy = await getFulfillmentPolicy(opts.token, policyId);
-    const currentExcluded = currentPolicy.shipToLocations?.regionExcluded || [];
-    const currentNames = new Set(currentExcluded.map((r: any) => r.regionName));
-    const newNames = new Set(regionExcluded.map(r => r.regionName));
+    tasks.push(() =>
+      limit(async () => {
+        const currentPolicy = await getFulfillmentPolicy(opts.token, policyId);
+        const currentExcluded = currentPolicy.shipToLocations?.regionExcluded || [];
+        const currentNames = new Set(currentExcluded.map((r: any) => r.regionName));
+        const newNames = new Set(regionExcluded.map((r) => r.regionName));
 
-    const hasChanges = currentNames.size !== newNames.size ||
-      [...currentNames].some(n => !newNames.has(n));
+        const hasChanges =
+          currentNames.size !== newNames.size || [...currentNames].some((n) => !newNames.has(n));
 
-    if (!hasChanges) {
-      skippedCount++;
-      continue;
-    }
+        if (!hasChanges) {
+          skippedCount++;
+          return;
+        }
 
-    const added = [...newNames].filter(n => !currentNames.has(n));
-    const removed = [...currentNames].filter(n => !newNames.has(n));
+        const added = [...newNames].filter((n) => !currentNames.has(n));
+        const removed = [...currentNames].filter((n) => !newNames.has(n));
 
-    console.log(chalk.cyan(`\n  [${policyName || policyId}]`));
-    if (added.length > 0) console.log(chalk.red(`    + 除外追加: ${added.join(', ')}`));
-    if (removed.length > 0) console.log(chalk.green(`    - 除外解除: ${removed.join(', ')}`));
+        console.log(chalk.cyan(`\n  [${policyName || policyId}]`));
+        if (added.length > 0) console.log(chalk.red(`    + 除外追加: ${added.join(', ')}`));
+        if (removed.length > 0) console.log(chalk.green(`    - 除外解除: ${removed.join(', ')}`));
 
-    if (dryRun) {
-      console.log(chalk.yellow('    (ドライラン)'));
-      updatedCount++;
-      continue;
-    }
+        if (dryRun) {
+          console.log(chalk.yellow('    (ドライラン)'));
+          updatedCount++;
+          return;
+        }
 
-    await updateFulfillmentPolicy(opts.token, policyId, {
-      ...currentPolicy,
-      shipToLocations: { ...currentPolicy.shipToLocations, regionExcluded },
-    } as any);
-    console.log(chalk.green('    ✔ 更新完了'));
-    updatedCount++;
+        await updateFulfillmentPolicy(opts.token, policyId, {
+          ...currentPolicy,
+          shipToLocations: { ...currentPolicy.shipToLocations, regionExcluded },
+        } as any);
+        console.log(chalk.green('    ✔ 更新完了'));
+        updatedCount++;
+      })
+    );
   }
+
+  await Promise.all(tasks.map((t) => t()));
 
   console.log('');
   if (dryRun) {

@@ -1,81 +1,163 @@
-~/Desktop/ebay-exclude/ に MCP Server を追加してください。
-既存のCLI（src/index.ts）はそのまま残し、MCPサーバーは別エントリポイントとして作成します。
+~/Desktop/ebay-exclude/src/mcp-server.ts を修正してください。
 
-## 作成するファイル
-- `src/mcp-server.ts` — MCPサーバーのエントリポイント
+## 問題点
+1. 各ツールの inputSchema が空（properties: {}）→ Claude Codeがパラメータを理解できない
+2. bulk_update_exclusions ツールがない
+3. import-allが遅い（1件ずつ逐次API呼び出し）
 
-## 使用パッケージ
-- `@modelcontextprotocol/sdk` （インストール済み）
-- stdioトランスポートを使用
+## 修正1: zodスキーマの追加
 
-## MCPサーバーの構造
+MCP SDKの `server.tool()` メソッドは第3引数にzodスキーマを受け取る:
 
 ```typescript
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+
+server.tool(
+  'tool_name',
+  'description',
+  { paramName: z.string().describe('説明') },  // ← zodスキーマ
+  async (args) => { ... }
+);
 ```
 
-## 公開するツール（5つ）
+zodはインストール済み（@modelcontextprotocol/sdkの依存に含まれる）。
 
-### 1. list_policies
-- 説明: eBayの全フルフィルメントポリシー一覧を取得
-- 入力: marketplaceId? (string, default "EBAY_US")
-- 処理: getFulfillmentPolicies() を呼んで、各ポリシーのname, id, 除外国数を返す
-- 出力: JSON配列 [{name, id, excludedCount}]
+### 各ツールのスキーマ定義:
 
-### 2. get_policy_exclusions
-- 説明: 特定ポリシーの除外設定を人間が読める形で取得
-- 入力: policyId (string, 必須)
-- 処理: getFulfillmentPolicy() で取得、classifyRegionName() + reverseMapping で表示名に変換
-- 出力: JSON {policyName, policyId, exclusions: {regions: [], domestics: [], countries: []}}
+#### list_policies
+```typescript
+{ marketplaceId: z.string().optional().describe('eBay marketplace ID (default: EBAY_US)') }
+```
 
-### 3. update_exclusions
-- 説明: 特定ポリシーの除外設定を更新
-- 入力:
-  - policyId (string, 必須)
-  - addExclusions? (string[], 追加する除外項目の表示名。例: ["Africa", "Japan", "PO Box"])
-  - removeExclusions? (string[], 解除する除外項目の表示名)
-  - setExclusions? (string[], 除外リストを丸ごと置き換え。表示名の配列)
-- 処理:
-  1. 現在のポリシーを取得
-  2. add/remove/set に応じて除外リストを更新
-  3. 表示名→APIName変換（regionMapping, countryToIso を使用）
-  4. updateFulfillmentPolicy() で更新
-- 出力: JSON {success, policyName, added: [], removed: [], totalExclusions: number}
+#### get_policy_exclusions
+```typescript
+{ policyId: z.string().describe('フルフィルメントポリシーID') }
+```
 
-### 4. export_all_excel
-- 説明: 全ポリシーの除外設定をピボット形式のExcelに出力
-- 入力: outputPath? (string, default "ebay-policies.xlsx")
-- 処理: exportAllCommand() をそのまま呼ぶ（src/commands/export-all.tsからインポート）
-- 出力: JSON {success, filePath, policyCount, columnCount}
+#### update_exclusions
+```typescript
+{
+  policyId: z.string().describe('フルフィルメントポリシーID'),
+  addExclusions: z.array(z.string()).optional().describe('追加する除外項目の表示名配列。例: ["Africa", "Japan", "PO Box"]'),
+  removeExclusions: z.array(z.string()).optional().describe('解除する除外項目の表示名配列'),
+  setExclusions: z.array(z.string()).optional().describe('除外リストを丸ごと置き換える表示名配列'),
+}
+```
 
-### 5. import_excel
-- 説明: ピボット形式のExcelからeBayに除外設定を反映
-- 入力:
-  - filePath (string, 必須)
-  - dryRun? (boolean, default true — 安全のためデフォルトでドライラン)
-- 処理: importAllCommand() をそのまま呼ぶ（src/commands/import-all.tsからインポート）
-- 出力: JSON {success, updatedCount, skippedCount, dryRun}
+#### export_all_excel
+```typescript
+{ outputPath: z.string().optional().describe('出力ファイルパス (default: ebay-policies.xlsx)') }
+```
 
-## 実装の注意点
+#### import_excel
+```typescript
+{
+  filePath: z.string().describe('インポートするExcelファイルのパス'),
+  dryRun: z.boolean().optional().default(true).describe('trueでプレビューのみ、falseで実際に反映'),
+}
+```
 
-1. dotenv/config を最初にインポート（.envから環境変数を読む）
-2. 既存の関数をインポートして使う:
-   - `src/lib/ebay-api.ts` → getFulfillmentPolicies, getFulfillmentPolicy, updateFulfillmentPolicy
-   - `src/lib/classify-region.ts` → classifyRegionName
-   - `src/data/definitions.ts` → regionMapping, countryToIso
-   - `src/commands/export-all.ts` → exportAllCommand
-   - `src/commands/import-all.ts` → importAllCommand
-3. エラーハンドリング: try-catchで包み、isError: trueでエラー返却
-4. update_exclusions の表示名→API名変換:
-   - regionMapping[displayName] があればそれを使う（リージョン）
-   - countryToIso[displayName] があればそれを使う（国名）
-   - それ以外はそのまま（domestic系やPO Box）
-5. console.logの出力はMCPのstdioと干渉するので、export_all_excelとimport_excelでは
-   console.logを一時的にリダイレクトする（出力をキャプチャしてtext contentに含める）
+## 修正2: bulk_update_exclusions ツール追加
 
-## package.json の bin に追加
-"ebay-exclude-mcp": "dist/mcp-server.js"
+```typescript
+server.tool(
+  'bulk_update_exclusions',
+  'ポリシー名フィルタで一括除外設定更新（部分一致）',
+  {
+    filter: z.string().optional().describe('ポリシー名の部分一致フィルタ（空なら全ポリシー対象）'),
+    addExclusions: z.array(z.string()).optional().describe('追加する除外項目の表示名配列'),
+    removeExclusions: z.array(z.string()).optional().describe('解除する除外項目の表示名配列'),
+    dryRun: z.boolean().optional().default(true).describe('trueでプレビューのみ、falseで実際に反映'),
+  },
+  async (args) => {
+    // 1. getFulfillmentPolicies() で全ポリシー取得
+    // 2. filter があれば名前で部分一致フィルタ
+    // 3. 各ポリシーに対して add/remove を適用
+    // 4. 変更があるポリシーのみ更新（並列実行、最大5並列）
+    // 5. 結果を返す: { totalMatched, updated, skipped, dryRun, details: [{name, id, added, removed}] }
+  }
+);
+```
+
+### 並列実行の実装:
+p-limitパッケージがインストール済みなので使用:
+```typescript
+import pLimit from 'p-limit';
+const limit = pLimit(5); // 最大5並列
+const promises = policiesToUpdate.map(p => limit(() => updateSinglePolicy(p)));
+await Promise.all(promises);
+```
+
+## 修正3: import_excel の並列化
+
+import_excel ツール内で importAllCommand() を呼んでいるが、
+src/commands/import-all.ts の forループを並列化する。
+
+import-all.ts の修正:
+- 既存の for ループ（逐次）を、p-limit(5) による並列処理に変更
+- 結果の集計は Promise.all の後にまとめる
+
+```typescript
+import pLimit from 'p-limit';
+
+// 変更前（逐次）:
+// for (let rowNum = 2; rowNum <= sheet.rowCount; rowNum++) {
+//   const row = sheet.getRow(rowNum);
+//   ...
+//   await updateFulfillmentPolicy(...);
+// }
+
+// 変更後（並列）:
+const limit = pLimit(5);
+const tasks: Array<() => Promise<void>> = [];
+
+for (let rowNum = 2; rowNum <= sheet.rowCount; rowNum++) {
+  const row = sheet.getRow(rowNum);
+  const policyId = String(row.getCell(policyIdCol).value || '').trim();
+  const policyName = String(row.getCell(1).value || '').trim();
+  if (!policyId) continue;
+
+  const regionExcluded: Array<{ regionName: string }> = [];
+  for (const rc of regionColumns) {
+    const cellValue = String(row.getCell(rc.colNum).value || '').trim().toLowerCase();
+    if (cellValue === 'x' || cellValue === 'exclude') {
+      const apiName = displayNameToApiName(rc.displayName);
+      regionExcluded.push({ regionName: apiName });
+    }
+  }
+
+  tasks.push(() => limit(async () => {
+    const currentPolicy = await getFulfillmentPolicy(opts.token, policyId);
+    const currentExcluded = currentPolicy.shipToLocations?.regionExcluded || [];
+    const currentNames = new Set(currentExcluded.map((r: any) => r.regionName));
+    const newNames = new Set(regionExcluded.map(r => r.regionName));
+
+    const hasChanges = currentNames.size !== newNames.size ||
+      [...currentNames].some(n => !newNames.has(n));
+
+    if (!hasChanges) {
+      skippedCount++;
+      return;
+    }
+
+    // ... diff表示 ...
+
+    if (!dryRun) {
+      await updateFulfillmentPolicy(opts.token, policyId, {
+        ...currentPolicy,
+        shipToLocations: { ...currentPolicy.shipToLocations, regionExcluded },
+      } as any);
+    }
+    updatedCount++;
+  }));
+}
+
+await Promise.all(tasks.map(t => t()));
+```
 
 ## ビルド確認
 `npx tsc` でエラーがないこと。
+
+## ファイル
+- 修正: src/mcp-server.ts（スキーマ追加 + bulk_update_exclusions追加）
+- 修正: src/commands/import-all.ts（並列化）

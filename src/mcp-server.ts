@@ -2,6 +2,8 @@
 import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import pLimit from 'p-limit';
 
 import { getFulfillmentPolicies, getFulfillmentPolicy, updateFulfillmentPolicy } from './lib/ebay-api';
 import { classifyRegionName } from './lib/classify-region';
@@ -67,6 +69,7 @@ async function main() {
   server.tool(
     'list_policies',
     'eBayの全フルフィルメントポリシー一覧を取得',
+    { marketplaceId: z.string().optional().describe('eBay marketplace ID (default: EBAY_US)') },
     async (args: any) => {
       try {
         const marketplaceId = (args?.marketplaceId as string) || process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
@@ -83,10 +86,78 @@ async function main() {
     }
   );
 
+  // Tool: bulk_update_exclusions
+  server.tool(
+    'bulk_update_exclusions',
+    'ポリシー名フィルタで一括除外設定更新（部分一致）',
+    {
+      filter: z.string().optional().describe('ポリシー名の部分一致フィルタ（空なら全ポリシー対象）'),
+      addExclusions: z.array(z.string()).optional().describe('追加する除外項目の表示名配列'),
+      removeExclusions: z.array(z.string()).optional().describe('解除する除外項目の表示名配列'),
+      dryRun: z.boolean().optional().default(true).describe('trueでプレビューのみ、falseで実際に反映'),
+    },
+    async (args: any) => {
+      try {
+        const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
+        const filter = (args?.filter as string | undefined)?.toLowerCase().trim();
+        const add: string[] = Array.isArray(args?.addExclusions) ? args.addExclusions : [];
+        const remove: string[] = Array.isArray(args?.removeExclusions) ? args.removeExclusions : [];
+        const dryRun: boolean = typeof args?.dryRun === 'boolean' ? Boolean(args.dryRun) : true;
+
+        const policies = await getFulfillmentPolicies(undefined, marketplaceId);
+        const matched = policies.filter((p: any) => (!filter ? true : String(p.name || '').toLowerCase().includes(filter)));
+
+        const limit = pLimit(5);
+        const details: Array<{ name: string; id: string; added: string[]; removed: string[] }> = [];
+        let updated = 0;
+        let skipped = 0;
+
+        await Promise.all(
+          matched.map((p: any) =>
+            limit(async () => {
+              const currentExcluded = p.shipToLocations?.regionExcluded || [];
+              const currentDisplay = new Set<string>(currentExcluded.map((r: any) => toDisplayName(r.regionName)));
+
+              const nextDisplay = new Set<string>(currentDisplay);
+              for (const a of add) nextDisplay.add(a);
+              for (const rm of remove) nextDisplay.delete(rm);
+
+              const added = [...nextDisplay].filter((n) => !currentDisplay.has(n));
+              const removed = [...currentDisplay].filter((n) => !nextDisplay.has(n));
+
+              if (added.length === 0 && removed.length === 0) {
+                skipped++;
+                return;
+              }
+
+              details.push({ name: p.name, id: p.fulfillmentPolicyId, added, removed });
+
+              if (!dryRun) {
+                const regionExcluded = [...nextDisplay].map((dn) => ({ regionName: toApiName(dn) }));
+                const current = await getFulfillmentPolicy(undefined, p.fulfillmentPolicyId);
+                await updateFulfillmentPolicy(undefined, p.fulfillmentPolicyId, {
+                  ...current,
+                  shipToLocations: { ...current.shipToLocations, regionExcluded },
+                } as any);
+              }
+              updated++;
+            })
+          )
+        );
+
+        const json = { totalMatched: matched.length, updated, skipped, dryRun, details };
+        return { content: [{ type: 'json', json }] } as any;
+      } catch (e: any) {
+        return { isError: true, content: [{ type: 'text', text: e?.message || String(e) }] } as any;
+      }
+    }
+  );
+
   // Tool: get_policy_exclusions
   server.tool(
     'get_policy_exclusions',
     '特定ポリシーの除外設定を人間が読める形で取得',
+    { policyId: z.string().describe('フルフィルメントポリシーID') },
     async (args: any) => {
       try {
         const policyId = args?.policyId as string;
@@ -120,6 +191,12 @@ async function main() {
   server.tool(
     'update_exclusions',
     '特定ポリシーの除外設定を更新',
+    {
+      policyId: z.string().describe('フルフィルメントポリシーID'),
+      addExclusions: z.array(z.string()).optional().describe('追加する除外項目の表示名配列。例: ["Africa", "Japan", "PO Box"]'),
+      removeExclusions: z.array(z.string()).optional().describe('解除する除外項目の表示名配列'),
+      setExclusions: z.array(z.string()).optional().describe('除外リストを丸ごと置き換える表示名配列'),
+    },
     async (args: any) => {
       try {
         const policyId = args?.policyId as string;
@@ -174,6 +251,7 @@ async function main() {
   server.tool(
     'export_all_excel',
     '全ポリシーの除外設定をピボット形式のExcelに出力',
+    { outputPath: z.string().optional().describe('出力ファイルパス (default: ebay-policies.xlsx)') },
     async (args: any) => {
       try {
         const outputPath = (args?.outputPath as string) || 'ebay-policies.xlsx';
@@ -205,6 +283,10 @@ async function main() {
   server.tool(
     'import_excel',
     'ピボット形式のExcelからeBayに除外設定を反映',
+    {
+      filePath: z.string().describe('インポートするExcelファイルのパス'),
+      dryRun: z.boolean().optional().default(true).describe('trueでプレビューのみ、falseで実際に反映'),
+    },
     async (args: any) => {
       try {
         const filePath = args?.filePath as string;
