@@ -43,6 +43,7 @@
           <a href="#commands" class="hover:text-ebay-blue">コマンド</a>
           <a href="#csv" class="hover:text-ebay-blue">CSV編集</a>
           <a href="#shortcuts" class="hover:text-ebay-blue">ショートカット</a>
+          <a href="#claude-code" class="hover:text-ebay-blue">Claude Code</a>
           <a href="#faq" class="hover:text-ebay-blue">FAQ</a>
           <a href="#troubleshooting" class="hover:text-ebay-blue">トラブルシューティング</a>
         </div>
@@ -61,6 +62,7 @@
           <span class="px-2 py-1 rounded bg-ebay-blue/10 text-ebay-blue">一括適用</span>
           <span class="px-2 py-1 rounded bg-ebay-yellow/20 text-ebay-yellow">差分更新</span>
           <span class="px-2 py-1 rounded bg-ebay-green/20 text-ebay-green">レート制限対応</span>
+          <span class="px-2 py-1 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200">Claude Code MCP連携</span>
         </div>
       </div>
     </header>
@@ -283,6 +285,90 @@ domestic,Alaska/Hawaii,exclude,アラスカ・ハワイ除外</code></pre>
       </div>
     </section>
     <div class="hr-gradient"></div>
+    <section id="claude-code" class="py-10">
+      <div class="max-w-6xl mx-auto px-4">
+        <h2 class="text-2xl font-bold mb-4">Claude Code 連携（MCP）</h2>
+        <p class="mb-4">ebay-exclude は <strong>MCP（Model Context Protocol）サーバー</strong>として Claude Code と連携できます。自然言語でポリシー管理が可能になります。</p>
+
+        <h3 class="text-xl font-semibold mt-6 mb-2">7.1 セットアップ</h3>
+        <p class="mb-2">Claude Code の設定ファイル（<code class="font-mono">~/.claude/settings.json</code>）に以下を追加：</p>
+        <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+          <pre class="p-3 overflow-x-auto"><code class="language-bash">"mcpServers": {
+  "ebay-exclude": {
+    "command": "node",
+    "args": ["/path/to/ebay-exclude/dist/mcp-server.js"]
+  }
+}</code></pre>
+        </div>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">設定後、Claude Code を再起動してください。</p>
+
+        <h3 class="text-xl font-semibold mt-6 mb-2">7.2 利用可能なツール</h3>
+        <div class="overflow-x-auto">
+          <table class="table-auto min-w-full border border-gray-200 dark:border-gray-700">
+            <thead class="bg-gray-50 dark:bg-gray-800"><tr><th class="px-3 py-2 text-left">ツール名</th><th class="px-3 py-2 text-left">説明</th><th class="px-3 py-2 text-left">話しかけ方の例</th></tr></thead>
+            <tbody>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2 font-mono text-sm">list_policies</td><td class="px-3 py-2">ポリシー一覧取得</td><td class="px-3 py-2">「ポリシー一覧を見せて」</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2 font-mono text-sm">get_policy_exclusions</td><td class="px-3 py-2">特定ポリシーの除外設定を取得</td><td class="px-3 py-2">「中古エコノミーの除外国は？」</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2 font-mono text-sm">update_exclusions</td><td class="px-3 py-2">1件のポリシーの除外設定を更新</td><td class="px-3 py-2">「このポリシーからアフリカを除外して」</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2 font-mono text-sm">bulk_update_exclusions</td><td class="px-3 py-2">フィルタ付き一括除外更新</td><td class="px-3 py-2">「全ポリシーからMiddle Eastを除外して」</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2 font-mono text-sm">export_all_excel</td><td class="px-3 py-2">全ポリシーをExcel出力</td><td class="px-3 py-2">「全ポリシーをExcelに出力して」</td></tr>
+              <tr class="border-t border-gray-200 dark:border-gray-700"><td class="px-3 py-2 font-mono text-sm">import_excel</td><td class="px-3 py-2">Excelからインポート</td><td class="px-3 py-2">「このExcelの変更を反映して」</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="text-xl font-semibold mt-6 mb-2">7.3 使い方の例</h3>
+        <div class="space-y-4">
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+            <div class="font-semibold mb-2">例1: ポリシー一覧の確認</div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-3 text-sm font-mono">
+              <div class="text-ebay-blue">ユーザー：</div>
+              <div>「eBayのポリシー一覧を見せて」</div>
+              <div class="mt-2 text-ebay-green">Claude Code：</div>
+              <div>→ list_policies を呼び出し、312件のポリシーを一覧表示</div>
+            </div>
+          </div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+            <div class="font-semibold mb-2">例2: 一括除外追加</div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-3 text-sm font-mono">
+              <div class="text-ebay-blue">ユーザー：</div>
+              <div>「全ポリシーからMiddle Eastを除外して」</div>
+              <div class="mt-2 text-ebay-green">Claude Code：</div>
+              <div>→ bulk_update_exclusions(addExclusions: ["Middle East"], dryRun: true)</div>
+              <div>→ プレビュー表示後、確認を経て dryRun: false で本番適用</div>
+            </div>
+          </div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+            <div class="font-semibold mb-2">例3: フィルタ付き更新</div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-3 text-sm font-mono">
+              <div class="text-ebay-blue">ユーザー：</div>
+              <div>「中古のポリシーだけ、アフリカを除外解除して」</div>
+              <div class="mt-2 text-ebay-green">Claude Code：</div>
+              <div>→ bulk_update_exclusions(filter: "中古", removeExclusions: ["Africa"], dryRun: true)</div>
+            </div>
+          </div>
+          <div class="card rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+            <div class="font-semibold mb-2">例4: Excel出力→編集→インポート</div>
+            <div class="bg-gray-50 dark:bg-gray-800 rounded p-3 text-sm font-mono">
+              <div class="text-ebay-blue">ユーザー：</div>
+              <div>「全ポリシーをExcelに出力して」</div>
+              <div class="mt-1">（Excelを手動で編集）</div>
+              <div>「ebay-policies.xlsx の変更を反映して」</div>
+              <div class="mt-2 text-ebay-green">Claude Code：</div>
+              <div>→ export_all_excel → ユーザーが編集 → import_excel(dryRun: true) → 確認後 import_excel(dryRun: false)</div>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="text-xl font-semibold mt-6 mb-2">7.4 注意事項</h3>
+        <ul class="list-disc pl-6 space-y-1">
+          <li><code class="font-mono">bulk_update_exclusions</code> と <code class="font-mono">import_excel</code> はデフォルトで <strong>dry-run</strong>（安全のため）。実際に反映するには確認後に <code class="font-mono">dryRun: false</code> で再実行</li>
+          <li>国名・地域名は英語表記（例: Japan, Africa, Middle East, PO Box）</li>
+          <li>ポリシー名で指示された場合、Claude Code は自動的に <code class="font-mono">list_policies</code> でIDを特定してから操作します</li>
+          <li>認証情報は <code class="font-mono">.env</code> ファイルから自動読み込み。毎回トークンを指定する必要はありません</li>
+        </ul>
+      </div>
+    </section>
     <section id="faq" class="py-10">
       <div class="max-w-6xl mx-auto px-4">
         <h2 class="text-2xl font-bold mb-4">FAQ</h2>
