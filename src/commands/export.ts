@@ -7,7 +7,7 @@ import { ExclusionRule } from '../types';
 import { regionMapping } from '../data/definitions';
 
 interface ExportOptions {
-  token: string;
+  token?: string;
   marketplaceId?: string;
   policy?: string;
   output?: string; // if omitted, stdout
@@ -59,4 +59,3 @@ export async function exportCommand(opts: ExportOptions) {
     throw e;
   }
 }
-

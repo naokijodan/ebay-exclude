@@ -1,7 +1,11 @@
 import { FulfillmentPolicy } from '../types';
 import { runWithRateLimit } from './rate-limiter';
+import { getAccessToken } from './auth';
 
-const BASE_URL = 'https://api.ebay.com';
+function getBaseUrl(): string {
+  const env = process.env.EBAY_ENV || 'sandbox';
+  return env === 'production' ? 'https://api.ebay.com' : 'https://api.sandbox.ebay.com';
+}
 
 type FetchLike = (input: any, init?: any) => Promise<any>;
 
@@ -12,11 +16,12 @@ async function getFetch(): Promise<FetchLike> {
   return mod.default || mod;
 }
 
-async function request(path: string, options: any, token: string) {
+async function request(path: string, options: any, token?: string) {
   const fetch = await getFetch();
-  const url = `${BASE_URL}${path}`;
+  const url = `${getBaseUrl()}${path}`;
+  const actualToken = token || (await getAccessToken());
   const headers = {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${actualToken}`,
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
@@ -36,20 +41,20 @@ async function request(path: string, options: any, token: string) {
   });
 }
 
-export async function getFulfillmentPolicies(token: string, marketplaceId: string): Promise<FulfillmentPolicy[]> {
+export async function getFulfillmentPolicies(token: string | undefined, marketplaceId: string): Promise<FulfillmentPolicy[]> {
   const q = encodeURIComponent(marketplaceId);
   const data = await request(`/sell/account/v1/fulfillment_policy?marketplace_id=${q}`, { method: 'GET' }, token);
   const arr = (data?.fulfillmentPolicies || data?.fulfillmentPolicy || data?.policies || []) as any[];
   return arr as FulfillmentPolicy[];
 }
 
-export async function getFulfillmentPolicy(token: string, policyId: string): Promise<FulfillmentPolicy> {
+export async function getFulfillmentPolicy(token: string | undefined, policyId: string): Promise<FulfillmentPolicy> {
   const data = await request(`/sell/account/v1/fulfillment_policy/${encodeURIComponent(policyId)}`, { method: 'GET' }, token);
   return data as FulfillmentPolicy;
 }
 
 export async function updateFulfillmentPolicy(
-  token: string,
+  token: string | undefined,
   policyId: string,
   policyData: FulfillmentPolicy
 ): Promise<FulfillmentPolicy> {
@@ -60,4 +65,3 @@ export async function updateFulfillmentPolicy(
   );
   return data as FulfillmentPolicy;
 }
-

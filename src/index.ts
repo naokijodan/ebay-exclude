@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './commands/init';
@@ -29,12 +30,16 @@ program
   .option('--filter <pattern>', 'Filter policies by name (substring)')
   .action(async (cmd) => {
     const opts = program.opts();
-    const token = opts.token || process.env.EBAY_TOKEN;
-    if (!token) {
-      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
       process.exit(1);
     }
-    await listCommand({ token, marketplaceId: opts.marketplace, filter: cmd.filter });
+    await listCommand({ token: tokenOverride, marketplaceId: opts.marketplace, filter: cmd.filter });
   });
 
 program
@@ -44,12 +49,16 @@ program
   .option('-o, --output <path>', 'Output CSV file (default: stdout)')
   .action(async (cmd) => {
     const opts = program.opts();
-    const token = opts.token || process.env.EBAY_TOKEN;
-    if (!token) {
-      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
       process.exit(1);
     }
-    await exportCommand({ token, marketplaceId: opts.marketplace, policy: cmd.policy, output: cmd.output });
+    await exportCommand({ token: tokenOverride, marketplaceId: opts.marketplace, policy: cmd.policy, output: cmd.output });
   });
 
 program
@@ -59,12 +68,16 @@ program
   .option('--filter <pattern>', 'Filter policies by name (substring)')
   .action(async (file, cmd) => {
     const opts = program.opts();
-    const token = opts.token || process.env.EBAY_TOKEN;
-    if (!token) {
-      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
       process.exit(1);
     }
-    await diffCommand({ token, marketplaceId: opts.marketplace, file, policy: cmd.policy, filter: cmd.filter });
+    await diffCommand({ token: tokenOverride, marketplaceId: opts.marketplace, file, policy: cmd.policy, filter: cmd.filter });
   });
 
 program
@@ -75,16 +88,19 @@ program
   .option('--dry-run', 'Show planned changes without updating', false)
   .action(async (file, cmd) => {
     const opts = program.opts();
-    const token = opts.token || process.env.EBAY_TOKEN;
-    if (!token) {
-      console.error(chalk.red('Missing token. Use --token or set EBAY_TOKEN'));
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
       process.exit(1);
     }
-    await applyCommand({ token, marketplaceId: opts.marketplace, file, filter: cmd.filter, force: cmd.force, dryRun: cmd.dryRun });
+    await applyCommand({ token: tokenOverride, marketplaceId: opts.marketplace, file, filter: cmd.filter, force: cmd.force, dryRun: cmd.dryRun });
   });
 
 program.parseAsync().catch((e) => {
   console.error(chalk.red(e?.message || e));
   process.exit(1);
 });
-

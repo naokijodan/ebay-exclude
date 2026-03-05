@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { getFulfillmentPolicies } from '../lib/ebay-api';
 
 interface ListOptions {
-  token: string;
+  token?: string;
   marketplaceId?: string;
   filter?: string;
 }
@@ -58,4 +58,3 @@ export async function listCommand(opts: ListOptions) {
     throw e;
   }
 }
-

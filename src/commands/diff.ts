@@ -5,7 +5,7 @@ import { getFulfillmentPolicies, getFulfillmentPolicy } from '../lib/ebay-api';
 import { regionMapping } from '../data/definitions';
 
 interface DiffOptions {
-  token: string;
+  token?: string;
   marketplaceId?: string;
   file: string;
   policy?: string;
@@ -80,4 +80,3 @@ export async function diffCommand(opts: DiffOptions) {
     throw e;
   }
 }
-

@@ -6,7 +6,7 @@ import { getFulfillmentPolicies, getFulfillmentPolicy, updateFulfillmentPolicy }
 import { computeRulesHash, loadState, recordPolicyState, saveState } from '../lib/state-manager';
 
 interface ApplyOptions {
-  token: string;
+  token?: string;
   marketplaceId?: string;
   file: string;
   filter?: string;
@@ -129,4 +129,3 @@ export async function applyCommand(opts: ApplyOptions) {
     throw e;
   }
 }
-
