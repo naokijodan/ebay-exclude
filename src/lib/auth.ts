@@ -61,7 +61,6 @@ async function refreshToken(): Promise<{ accessToken: string; expiresIn: number 
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
-    scope: 'https://api.ebay.com/oauth/api_scope/sell.account',
   });
 
   const res = await fetch(url, {
