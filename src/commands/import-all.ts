@@ -51,6 +51,7 @@ export async function importAllCommand(opts: { token?: string; marketplaceId?: s
   // 各行を処理（並列化）
   let updatedCount = 0;
   let skippedCount = 0;
+  let failedCount = 0;
   const limit = pLimit(5);
   const tasks: Array<() => Promise<void>> = [];
 
@@ -97,12 +98,22 @@ export async function importAllCommand(opts: { token?: string; marketplaceId?: s
           return;
         }
 
-        await updateFulfillmentPolicy(opts.token, policyId, {
-          ...currentPolicy,
-          shipToLocations: { ...currentPolicy.shipToLocations, regionExcluded },
-        } as any);
-        console.log(chalk.green('    ✔ 更新完了'));
-        updatedCount++;
+        try {
+          await updateFulfillmentPolicy(opts.token, policyId, {
+            ...currentPolicy,
+            shipToLocations: { ...currentPolicy.shipToLocations, regionExcluded },
+          } as any);
+          console.log(chalk.green('    ✔ 更新完了'));
+          updatedCount++;
+        } catch (err: any) {
+          if (err.status === 400 && err.message?.includes('same as in the system')) {
+            console.log(chalk.yellow('    ⊘ 変更なし（既に同じ設定）'));
+            skippedCount++;
+          } else {
+            console.log(chalk.red(`    ✗ エラー: ${err.message}`));
+            failedCount++;
+          }
+        }
       })
     );
   }
@@ -113,6 +124,6 @@ export async function importAllCommand(opts: { token?: string; marketplaceId?: s
   if (dryRun) {
     console.log(chalk.yellow(`ドライラン完了: ${updatedCount}件変更予定、${skippedCount}件変更なし`));
   } else {
-    console.log(chalk.green(`✔ 完了: ${updatedCount}件更新、${skippedCount}件変更なし`));
+    console.log(chalk.green(`✔ 完了: ${updatedCount}件更新、${skippedCount}件変更なし${failedCount > 0 ? `、${failedCount}件エラー` : ''}`));
   }
 }
