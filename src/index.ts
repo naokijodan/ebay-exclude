@@ -10,6 +10,7 @@ import { applyCommand } from './commands/apply';
 import { runWizard } from './commands/wizard';
 import { exportAllCommand } from './commands/export-all';
 import { importAllCommand } from './commands/import-all';
+import { shippingListCommand, shippingReorderCommand, shippingAddCommand, shippingRemoveCommand } from './commands/shipping';
 
 const program = new Command();
 
@@ -144,6 +145,104 @@ program
   .description('Interactive wizard mode (対話式ウィザード)')
   .action(async () => {
     await runWizard();
+  });
+
+// Shipping subcommands group
+const shipping = program.command('shipping').description('Manage shipping services in fulfillment policies');
+
+shipping
+  .command('list')
+  .description('List shippingOptions of policies')
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .option('--policy <id>', 'Fulfillment policy ID')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
+      process.exit(1);
+    }
+    await shippingListCommand({ token: tokenOverride, marketplaceId: opts.marketplace, filter: cmd.filter, policy: cmd.policy });
+  });
+
+shipping
+  .command('reorder')
+  .description('Reorder INTERNATIONAL shipping services (move service to first)')
+  .option('--service <code>', 'Service code to move to first (e.g., US_IntlExpeditedSppedPAK)')
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .option('--policy <id>', 'Fulfillment policy ID')
+  .option('--dry-run', 'Preview only (default: true)')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
+      process.exit(1);
+    }
+    await shippingReorderCommand({ token: tokenOverride, marketplaceId: opts.marketplace, service: cmd.service, filter: cmd.filter, policy: cmd.policy, dryRun: cmd.dryRun });
+  });
+
+shipping
+  .command('add')
+  .description('Add a shippingService to INTERNATIONAL')
+  .option('--service <code>', 'Service code (e.g., US_IntlExpeditedSppedPAK)')
+  .option('--cost <number>', 'Shipping cost', (v) => Number(v))
+  .option('--ship-to <region>', 'Ship-to region name (e.g., Europe)')
+  .option('--additional-cost <number>', 'Additional item cost (default: same as --cost)', (v) => Number(v))
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .option('--policy <id>', 'Fulfillment policy ID')
+  .option('--dry-run', 'Preview only (default: true)')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
+      process.exit(1);
+    }
+    await shippingAddCommand({
+      token: tokenOverride,
+      marketplaceId: opts.marketplace,
+      service: cmd.service,
+      cost: cmd.cost,
+      shipTo: cmd.shipTo,
+      additionalCost: cmd.additionalCost,
+      filter: cmd.filter,
+      policy: cmd.policy,
+      dryRun: cmd.dryRun,
+    });
+  });
+
+shipping
+  .command('remove')
+  .description('Remove a shippingService from INTERNATIONAL')
+  .option('--service <code>', 'Service code to remove')
+  .option('--filter <pattern>', 'Filter policies by name (substring)')
+  .option('--policy <id>', 'Fulfillment policy ID')
+  .option('--dry-run', 'Preview only (default: true)')
+  .action(async (cmd) => {
+    const opts = program.opts();
+    const tokenOverride = opts.token || undefined;
+    if (!tokenOverride && !process.env.EBAY_TOKEN && !process.env.EBAY_REFRESH_TOKEN) {
+      console.error(
+        chalk.red(
+          'Missing credentials. Set EBAY_TOKEN, or EBAY_CLIENT_ID + EBAY_CLIENT_SECRET + EBAY_REFRESH_TOKEN in .env'
+        )
+      );
+      process.exit(1);
+    }
+    await shippingRemoveCommand({ token: tokenOverride, marketplaceId: opts.marketplace, service: cmd.service, filter: cmd.filter, policy: cmd.policy, dryRun: cmd.dryRun });
   });
 
 program.parseAsync().catch((e) => {

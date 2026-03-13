@@ -322,6 +322,285 @@ async function main() {
     }
   );
 
+  // Tool: list_shipping_services
+  server.tool(
+    'list_shipping_services',
+    'ポリシーのshippingServices一覧を取得',
+    {
+      policyId: z.string().optional().describe('フルフィルメントポリシーID'),
+      filter: z.string().optional().describe('ポリシー名の部分一致フィルタ'),
+      marketplaceId: z.string().optional().describe('eBay marketplace ID (default: EBAY_US)'),
+    },
+    async (args: any) => {
+      try {
+        const marketplaceId = (args?.marketplaceId as string) || process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
+        let policies: any[] = [];
+        if (args?.policyId) {
+          const p = await getFulfillmentPolicy(undefined, String(args.policyId));
+          policies = [p];
+        } else {
+          const all = await getFulfillmentPolicies(undefined, marketplaceId);
+          const f = (args?.filter as string | undefined)?.toLowerCase() || '';
+          policies = f ? all.filter((p: any) => String(p.name || '').toLowerCase().includes(f)) : all;
+        }
+
+        const out = policies.map((p: any) => {
+          const items: any[] = [];
+          const options: any[] = Array.isArray(p?.shippingOptions) ? p.shippingOptions : [];
+          for (const o of options) {
+            const services: any[] = Array.isArray(o?.shippingServices) ? o.shippingServices : [];
+            for (const s of services) {
+              items.push({
+                optionType: o?.optionType,
+                shippingServiceCode: s?.shippingServiceCode,
+                cost: s?.shippingCost?.value,
+                freeShipping: !!s?.freeShipping,
+                shipToLocations: (s?.shipToLocations?.regionIncluded || []).map((r: any) => r.regionName),
+              });
+            }
+          }
+          return { policyId: p?.fulfillmentPolicyId, name: p?.name, services: items };
+        });
+        return { content: [{ type: 'json', json: out }] } as any;
+      } catch (e: any) {
+        return { isError: true, content: [{ type: 'text', text: e?.message || String(e) }] } as any;
+      }
+    }
+  );
+
+  // Tool: reorder_shipping_services
+  server.tool(
+    'reorder_shipping_services',
+    'INTERNATIONALのshippingServices順序を変更（指定サービスを先頭へ）',
+    {
+      service: z.string().describe('先頭に移動するサービスコード'),
+      filter: z.string().optional().describe('ポリシー名の部分一致フィルタ'),
+      policyId: z.string().optional().describe('フルフィルメントポリシーID'),
+      dryRun: z.boolean().optional().default(true).describe('trueでプレビュー、falseで更新'),
+    },
+    async (args: any) => {
+      try {
+        const service = String(args?.service);
+        const dryRun: boolean = typeof args?.dryRun === 'boolean' ? Boolean(args.dryRun) : true;
+        const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
+        let targets: any[] = [];
+        if (args?.policyId) {
+          const p = await getFulfillmentPolicy(undefined, String(args.policyId));
+          targets = [p];
+        } else {
+          const all = await getFulfillmentPolicies(undefined, marketplaceId);
+          const f = (args?.filter as string | undefined)?.toLowerCase() || '';
+          targets = f ? all.filter((p: any) => String(p.name || '').toLowerCase().includes(f)) : all;
+        }
+
+        const limit = pLimit(5);
+        let updated = 0;
+        let skipped = 0;
+        let failed = 0;
+        const details: any[] = [];
+
+        await Promise.all(
+          targets.map((t: any) =>
+            limit(async () => {
+              try {
+                const policy = await getFulfillmentPolicy(undefined, t.fulfillmentPolicyId);
+                const intl = (policy?.shippingOptions || []).find((o: any) => o?.optionType === 'INTERNATIONAL');
+                if (!intl) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'NO_INTERNATIONAL' });
+                  return;
+                }
+                const services: any[] = Array.isArray(intl.shippingServices) ? intl.shippingServices : [];
+                const idx = services.findIndex((s) => s?.shippingServiceCode === service);
+                if (idx === -1) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'SERVICE_NOT_FOUND' });
+                  return;
+                }
+                if (idx === 0) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'ALREADY_FIRST' });
+                  return;
+                }
+                const [svc] = services.splice(idx, 1);
+                services.unshift(svc);
+                if (!dryRun) {
+                  await updateFulfillmentPolicy(undefined, t.fulfillmentPolicyId, policy);
+                }
+                updated++;
+                details.push({ id: t.fulfillmentPolicyId, name: t.name, status: dryRun ? 'WOULD_UPDATE' : 'UPDATED' });
+              } catch (e: any) {
+                failed++;
+                details.push({ id: t.fulfillmentPolicyId, name: t.name, error: e?.message || String(e) });
+              }
+            })
+          )
+        );
+
+        const json = { totalMatched: targets.length, updated, skipped, failed, dryRun, details };
+        return { content: [{ type: 'json', json }] } as any;
+      } catch (e: any) {
+        return { isError: true, content: [{ type: 'text', text: e?.message || String(e) }] } as any;
+      }
+    }
+  );
+
+  // Tool: add_shipping_service
+  server.tool(
+    'add_shipping_service',
+    'INTERNATIONALにshippingServiceを追加',
+    {
+      service: z.string().describe('サービスコード'),
+      cost: z.number().describe('配送料'),
+      shipTo: z.string().describe('配送先（例: Europe）'),
+      filter: z.string().optional().describe('ポリシー名の部分一致フィルタ'),
+      policyId: z.string().optional().describe('フルフィルメントポリシーID'),
+      additionalCost: z.number().optional().describe('追加アイテムのコスト'),
+      dryRun: z.boolean().optional().default(true).describe('trueでプレビュー、falseで更新'),
+    },
+    async (args: any) => {
+      try {
+        const service = String(args?.service);
+        const cost = Number(args?.cost);
+        const shipTo = String(args?.shipTo);
+        const additionalCost = args?.additionalCost !== undefined ? Number(args.additionalCost) : cost;
+        const dryRun: boolean = typeof args?.dryRun === 'boolean' ? Boolean(args.dryRun) : true;
+        const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
+
+        let targets: any[] = [];
+        if (args?.policyId) {
+          const p = await getFulfillmentPolicy(undefined, String(args.policyId));
+          targets = [p];
+        } else {
+          const all = await getFulfillmentPolicies(undefined, marketplaceId);
+          const f = (args?.filter as string | undefined)?.toLowerCase() || '';
+          targets = f ? all.filter((p: any) => String(p.name || '').toLowerCase().includes(f)) : all;
+        }
+
+        const limit = pLimit(5);
+        let updated = 0;
+        let skipped = 0;
+        let failed = 0;
+        const details: any[] = [];
+
+        await Promise.all(
+          targets.map((t: any) =>
+            limit(async () => {
+              try {
+                const policy = await getFulfillmentPolicy(undefined, t.fulfillmentPolicyId);
+                const intl = (policy?.shippingOptions || []).find((o: any) => o?.optionType === 'INTERNATIONAL');
+                if (!intl) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'NO_INTERNATIONAL' });
+                  return;
+                }
+                const services: any[] = Array.isArray(intl.shippingServices) ? intl.shippingServices : (intl.shippingServices = []);
+                if (services.find((s) => s?.shippingServiceCode === service)) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'ALREADY_EXISTS' });
+                  return;
+                }
+                const currency = services.find((s) => s?.shippingCost?.currency)?.shippingCost?.currency || 'USD';
+                const newSvc: any = {
+                  shippingServiceCode: service,
+                  freeShipping: Number(cost) === 0,
+                  shippingCost: { value: Number(cost), currency },
+                  additionalShippingCost: { value: Number(additionalCost), currency },
+                  shipToLocations: { regionIncluded: [{ regionName: shipTo }] },
+                };
+                services.push(newSvc);
+                if (!dryRun) {
+                  await updateFulfillmentPolicy(undefined, t.fulfillmentPolicyId, policy);
+                }
+                updated++;
+                details.push({ id: t.fulfillmentPolicyId, name: t.name, status: dryRun ? 'WOULD_UPDATE' : 'UPDATED' });
+              } catch (e: any) {
+                failed++;
+                details.push({ id: t.fulfillmentPolicyId, name: t.name, error: e?.message || String(e) });
+              }
+            })
+          )
+        );
+
+        const json = { totalMatched: targets.length, updated, skipped, failed, dryRun, details };
+        return { content: [{ type: 'json', json }] } as any;
+      } catch (e: any) {
+        return { isError: true, content: [{ type: 'text', text: e?.message || String(e) }] } as any;
+      }
+    }
+  );
+
+  // Tool: remove_shipping_service
+  server.tool(
+    'remove_shipping_service',
+    'INTERNATIONALからshippingServiceを削除',
+    {
+      service: z.string().describe('サービスコード'),
+      filter: z.string().optional().describe('ポリシー名の部分一致フィルタ'),
+      policyId: z.string().optional().describe('フルフィルメントポリシーID'),
+      dryRun: z.boolean().optional().default(true).describe('trueでプレビュー、falseで更新'),
+    },
+    async (args: any) => {
+      try {
+        const service = String(args?.service);
+        const dryRun: boolean = typeof args?.dryRun === 'boolean' ? Boolean(args.dryRun) : true;
+        const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_US';
+        let targets: any[] = [];
+        if (args?.policyId) {
+          const p = await getFulfillmentPolicy(undefined, String(args.policyId));
+          targets = [p];
+        } else {
+          const all = await getFulfillmentPolicies(undefined, marketplaceId);
+          const f = (args?.filter as string | undefined)?.toLowerCase() || '';
+          targets = f ? all.filter((p: any) => String(p.name || '').toLowerCase().includes(f)) : all;
+        }
+
+        const limit = pLimit(5);
+        let updated = 0;
+        let skipped = 0;
+        let failed = 0;
+        const details: any[] = [];
+
+        await Promise.all(
+          targets.map((t: any) =>
+            limit(async () => {
+              try {
+                const policy = await getFulfillmentPolicy(undefined, t.fulfillmentPolicyId);
+                const intl = (policy?.shippingOptions || []).find((o: any) => o?.optionType === 'INTERNATIONAL');
+                if (!intl) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'NO_INTERNATIONAL' });
+                  return;
+                }
+                const services: any[] = Array.isArray(intl.shippingServices) ? intl.shippingServices : [];
+                const idx = services.findIndex((s) => s?.shippingServiceCode === service);
+                if (idx === -1) {
+                  skipped++;
+                  details.push({ id: t.fulfillmentPolicyId, name: t.name, reason: 'NOT_FOUND' });
+                  return;
+                }
+                if (!dryRun) {
+                  services.splice(idx, 1);
+                  await updateFulfillmentPolicy(undefined, t.fulfillmentPolicyId, policy);
+                }
+                updated++;
+                details.push({ id: t.fulfillmentPolicyId, name: t.name, status: dryRun ? 'WOULD_UPDATE' : 'UPDATED' });
+              } catch (e: any) {
+                failed++;
+                details.push({ id: t.fulfillmentPolicyId, name: t.name, error: e?.message || String(e) });
+              }
+            })
+          )
+        );
+
+        const json = { totalMatched: targets.length, updated, skipped, failed, dryRun, details };
+        return { content: [{ type: 'json', json }] } as any;
+      } catch (e: any) {
+        return { isError: true, content: [{ type: 'text', text: e?.message || String(e) }] } as any;
+      }
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
